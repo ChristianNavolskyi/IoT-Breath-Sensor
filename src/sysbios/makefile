@@ -16,7 +16,7 @@ BIOS_INC  = -I"C:/ti/tirtos_cc13xx_cc26xx_2_21_00_06/products/bios_6_46_01_37/pa
 
 TARGET_INC = -I"C:/ti/tirtos_cc13xx_cc26xx_2_21_00_06/products/bios_6_46_01_37/packages/"
 
-INCS = $(BIOS_INC) $(TARGET_INC)  --include_path="C:/Users/user/workspace_v9/rfPacketTx_CC1350_LAUNCHXL_TI" --include_path="C:/Users/user/workspace_v9/rfPacketTx_CC1350_LAUNCHXL_TI" --include_path="C:/Users/user/workspace_v9/rfPacketTx_CC1350_LAUNCHXL_TI/smartrf_settings" --include_path="C:/ti/tirtos_cc13xx_cc26xx_2_21_00_06/products/cc13xxware_2_04_03_17272" --include_path="C:/ti/ccs900/ccs/tools/compiler/ti-cgt-arm_18.12.1.LTS/include"  -IC:/ti/tirtos_cc13xx_cc26xx_2_21_00_06/products/bios_6_46_01_37/packages/ 
+INCS = $(BIOS_INC) $(TARGET_INC)  --include_path="C:/Users/user/Documents/GitHub/IoT-Breath-Sensor" --include_path="C:/Users/user/Documents/GitHub/IoT-Breath-Sensor" --include_path="C:/Users/user/Documents/GitHub/IoT-Breath-Sensor/smartrf_settings" --include_path="C:/ti/tirtos_cc13xx_cc26xx_2_21_00_06/products/cc13xxware_2_04_03_17272" --include_path="C:/ti/ccs900/ccs/tools/compiler/ti-cgt-arm_18.12.1.LTS/include"  -IC:/ti/tirtos_cc13xx_cc26xx_2_21_00_06/products/bios_6_46_01_37/packages/ 
 
 CC = C:/ti/ccs900/ccs/tools/compiler/ti-cgt-arm_18.12.1.LTS/bin/armcl -c $(CCOPTS) -I C:/ti/ccs900/ccs/tools/compiler/ti-cgt-arm_18.12.1.LTS/include
 ASM = C:/ti/ccs900/ccs/tools/compiler/ti-cgt-arm_18.12.1.LTS/bin/armcl -c $(CCOPTS) -I C:/ti/ccs900/ccs/tools/compiler/ti-cgt-arm_18.12.1.LTS/include

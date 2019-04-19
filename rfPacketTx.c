@@ -31,27 +31,23 @@
  */
 
 /***** Includes *****/
+/***** RF Includes *****/
 #include <stdlib.h>
 #include <xdc/std.h>
 #include <xdc/runtime/System.h>
 #include <stdint.h>
 #include <string.h>
-
+/***** ADC Includes *****/
 #include <ti/sysbios/BIOS.h>
 #include <ti/sysbios/knl/Task.h>
-
 /* XDCtools Header files */
 #include <xdc/std.h>
 #include <xdc/runtime/System.h>
-
 /* BIOS Header files */
 #include <ti/sysbios/BIOS.h>
 #include <ti/sysbios/knl/Task.h>
-
 /* TI-RTOS Header files */
 #include <ti/drivers/ADCBuf.h>
-#include <ti/drivers/UART.h>
-
 /* Drivers */
 #include <ti/drivers/rf/RF.h>
 #include <ti/drivers/PIN.h>
@@ -83,31 +79,19 @@ PIN_Config pinTable[] =
 /* Packet TX Configuration */
 #define PAYLOAD_LENGTH      30
 #define PACKET_INTERVAL     (uint32_t)(4000000*0.5f) /* Set packet interval to 500ms */
-
 #define TASKSTACKSIZE    (768)
 #define ADCBUFFERSIZE    (1)
-#define UART_WRITE_BUFFER_SIZE (10)
-#define UART_READ_BUFFER_SIZE (3)
-
 
 Task_Struct task0Struct;
 Char task0Stack[TASKSTACKSIZE];
-
 uint16_t sampleBufferOne[ADCBUFFERSIZE];
 uint16_t sampleBufferTwo[ADCBUFFERSIZE];
 uint32_t microVoltBuffer[ADCBUFFERSIZE];
 uint32_t buffersCompletedCounter = 0;
-uint_fast16_t uartOutputBufferSize = 0;
+// uint_fast16_t uartOutputBufferSize = 0;
 
-char uartWriteBuffer[UART_WRITE_BUFFER_SIZE];
-char uartReadBuffer[UART_READ_BUFFER_SIZE];
 char endLineSequence[] = "end";
-
 uint32_t time = 0;
-
-/* Driver handle shared between the task and the callback function */
-UART_Handle uart;
-
 
 /*
  * This function is called whenever a buffer is full.
@@ -121,24 +105,9 @@ void adcBufCallback(ADCBuf_Handle handle, ADCBuf_Conversion *conversion,
     ADCBuf_adjustRawValues(handle, completedADCBuffer, ADCBUFFERSIZE, completedChannel);
     ADCBuf_convertAdjustedToMicroVolts(handle, completedChannel, completedADCBuffer, microVoltBuffer, ADCBUFFERSIZE);
 
-    uartOutputBufferSize = System_sprintf(uartWriteBuffer, "%d,%d;", time++, microVoltBuffer[0]);
-    UART_write(uart, uartWriteBuffer, uartOutputBufferSize + 1);
-    UART_read(uart, uartReadBuffer, UART_READ_BUFFER_SIZE);
-}
-
-void uartWriteCallback(UART_Handle handle, void *buf, size_t count) {
-    return;
-}
-
-void uartReadCallback(UART_Handle handle, void *buf, size_t count) {
-    int comparissonResult = strcmp(endLineSequence, buf);
-
-    if (comparissonResult) {
-        return;
-    }
-
-    uartOutputBufferSize = System_sprintf(uartWriteBuffer, "\r\n");
-    UART_write(handle, uartWriteBuffer, uartOutputBufferSize + 1);
+//    uartOutputBufferSize = System_sprintf(uartWriteBuffer, "%d,%d;", time++, microVoltBuffer[0]);
+//    UART_write(uart, uartWriteBuffer, uartOutputBufferSize + 1);
+//    UART_read(uart, uartReadBuffer, UART_READ_BUFFER_SIZE);
 }
 
 /*
@@ -146,20 +115,9 @@ void uartReadCallback(UART_Handle handle, void *buf, size_t count) {
  *  Task for this function is created statically. See the project's .cfg file.
  */
 void conversionStartFxn(UArg arg0, UArg arg1) {
-    UART_Params uartParams;
     ADCBuf_Handle adcBuf;
     ADCBuf_Params adcBufParams;
     ADCBuf_Conversion continuousConversionChannel;
-
-    UART_Params_init(&uartParams);
-    uartParams.writeDataMode = UART_DATA_BINARY;
-    uartParams.writeMode = UART_MODE_CALLBACK;
-    uartParams.writeCallback = uartWriteCallback;
-    uartParams.readDataMode = UART_DATA_TEXT;
-    uartParams.readMode = UART_MODE_CALLBACK;
-    uartParams.readCallback = uartReadCallback;
-    uartParams.baudRate = 115200;
-    uart = UART_open(Board_UART0, &uartParams);
 
     ADCBuf_Params_init(&adcBufParams);
     adcBufParams.callbackFxn = adcBufCallback;
@@ -191,11 +149,8 @@ void conversionStartFxn(UArg arg0, UArg arg1) {
     Task_sleep(BIOS_WAIT_FOREVER);
 }
 
-
 /***** Prototypes *****/
 static void txTaskFunction(UArg arg0, UArg arg1);
-
-
 
 /***** Variable declarations *****/
 static Task_Params txTaskParams;
@@ -249,9 +204,10 @@ static void txTaskFunction(UArg arg0, UArg arg1)
     {
         /* Create packet with incrementing sequence number and random payload */
         uint8_t i;
-        for (i = 0; i < PAYLOAD_LENGTH; i++)
+        for (i = 0; i < PAYLOAD_LENGTH; i=i+2)
         {
-            packet[i] = rand();
+            packet[i] = time;
+            packet[i+1] = microVoltBuffer[0];
         }
 
         /* Set absolute TX time to utilize automatic power management */
@@ -280,7 +236,6 @@ int main(void)
     /* Call board init functions. */
     Board_initGeneral();
     Board_initADCBuf();
-    Board_initUART();
 
     /* Open LED pins */
     ledPinHandle = PIN_open(&ledPinState, pinTable);
@@ -288,9 +243,6 @@ int main(void)
     {
         System_abort("Error initializing board LED pins\n");
     }
-
-
-
 
     /* Construct BIOS objects */
     Task_Params_init(&taskParams);

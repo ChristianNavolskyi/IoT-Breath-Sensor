@@ -1,6 +1,6 @@
 #
 # This file was generated based on the configuration script:
-#     C:\Users\user\workspace_v9\rfPacketTx_CC1350_LAUNCHXL_TI\adcBufContinuousSampling.cfg
+#     C:\Users\user\Documents\GitHub\IoT-Breath-Sensor\adcBufContinuousSampling.cfg
 #
 # This makefile may be included in other makefiles that need to build
 # the libraries containing the compiled source files generated as
@@ -14,7 +14,7 @@
 #
 # The absolute path to the generated source directory (at the time the
 # sources were generated) is:
-#    C:\Users\user\workspace_v9\rfPacketTx_CC1350_LAUNCHXL_TI\src
+#    C:\Users\user\Documents\GitHub\IoT-Breath-Sensor\src
 #
 GEN_SRC_DIR ?= ../src
 
