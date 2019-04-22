@@ -77,7 +77,7 @@ PIN_Config pinTable[] =
 #define TX_TASK_PRIORITY   2
 
 /* Packet TX Configuration */
-#define PAYLOAD_LENGTH      30
+#define PAYLOAD_LENGTH      1 //30
 #define PACKET_INTERVAL     (uint32_t)(4000000*0.5f) /* Set packet interval to 500ms */
 #define TASKSTACKSIZE    (768)
 #define ADCBUFFERSIZE    (1)
@@ -89,6 +89,10 @@ uint16_t sampleBufferTwo[ADCBUFFERSIZE];
 uint32_t microVoltBuffer[ADCBUFFERSIZE];
 uint32_t buffersCompletedCounter = 0;
 // uint_fast16_t uartOutputBufferSize = 0;
+
+
+uint8_t sentPacket[PAYLOAD_LENGTH];
+
 
 char endLineSequence[] = "end";
 uint32_t time = 0;
@@ -104,7 +108,7 @@ void adcBufCallback(ADCBuf_Handle handle, ADCBuf_Conversion *conversion,
 
     ADCBuf_adjustRawValues(handle, completedADCBuffer, ADCBUFFERSIZE, completedChannel);
     ADCBuf_convertAdjustedToMicroVolts(handle, completedChannel, completedADCBuffer, microVoltBuffer, ADCBUFFERSIZE);
-
+    //sentPacket = microVoltBuffer[0];
 //    uartOutputBufferSize = System_sprintf(uartWriteBuffer, "%d,%d;", time++, microVoltBuffer[0]);
 //    UART_write(uart, uartWriteBuffer, uartOutputBufferSize + 1);
 //    UART_read(uart, uartReadBuffer, UART_READ_BUFFER_SIZE);
@@ -162,7 +166,7 @@ static RF_Handle rfHandle;
 
 uint32_t time;
 static uint8_t packet[PAYLOAD_LENGTH];
-static uint16_t seqNumber;
+//static uint16_t seqNumber;
 static PIN_Handle pinHandle;
 
 
@@ -182,6 +186,8 @@ void TxTask_init(PIN_Handle inPinHandle)
 
 static void txTaskFunction(UArg arg0, UArg arg1)
 {
+    uint_fast16_t bufferSize = 0;
+
     uint32_t time;
     RF_Params rfParams;
     RF_Params_init(&rfParams);
@@ -204,10 +210,13 @@ static void txTaskFunction(UArg arg0, UArg arg1)
     {
         /* Create packet with incrementing sequence number and random payload */
         uint8_t i;
-        for (i = 0; i < PAYLOAD_LENGTH; i=i+2)
+        for (i = 0; i < PAYLOAD_LENGTH; i=i+5)
         {
-            packet[i] = time;
-            packet[i+1] = microVoltBuffer[0];
+            memcpy(packet[i], time, 1);
+            memcpy(packet[i+1], microVoltBuffer[0], 1);
+            memcpy(packet[i+2], microVoltBuffer[1], 1);
+            memcpy(packet[i+3], microVoltBuffer[2], 1);
+            memcpy(packet[i+4], microVoltBuffer[3], 1);
         }
 
         /* Set absolute TX time to utilize automatic power management */
@@ -224,10 +233,12 @@ static void txTaskFunction(UArg arg0, UArg arg1)
 
         PIN_setOutputValue(pinHandle, Board_LED1,!PIN_getOutputValue(Board_LED1));
     }
+
 }
 
 /*
  *  ======== main ========
+ *  Main consists of two parts: ADC which converts sensor value to digital and the second part which transmits the digital value to the launchtag by RF
  */
 int main(void)
 {
@@ -248,15 +259,22 @@ int main(void)
     Task_Params_init(&taskParams);
     taskParams.stackSize = TASKSTACKSIZE;
     taskParams.stack = &task0Stack;
+    /* Convert Analog to Digital by calling conversionStartFxn with taskParams */
     Task_construct(&task0Struct, (Task_FuncPtr) conversionStartFxn,
         &taskParams, NULL);
 
-    System_printf("Starting the ADC Continuous Sampling example\n"
+
+    Display_print("Starting the ADC Continuous Sampling example\n"
         "System provider is set to SysMin. Halt the target to view any SysMin "
         "contents in ROV.\n");
 
+
+
     /* Initialize task */
+    /* call txTaskFunction which transmits */
     TxTask_init(ledPinHandle);
+
+
 
     /* SysMin will only print to the console when you call flush or exit */
     System_flush();
