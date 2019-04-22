@@ -36,7 +36,6 @@
 #include <xdc/std.h>
 #include <xdc/runtime/System.h>
 #include <stdint.h>
-#include <string.h>
 /***** ADC Includes *****/
 #include <ti/sysbios/BIOS.h>
 #include <ti/sysbios/knl/Task.h>
@@ -50,75 +49,53 @@
 #include <ti/drivers/ADCBuf.h>
 /* Drivers */
 #include <ti/drivers/rf/RF.h>
-#include <ti/drivers/PIN.h>
 
 /* Board Header files */
 #include "Board.h"
 
 #include "smartrf_settings/smartrf_settings.h"
 
-/* Pin driver handle */
-static PIN_Handle ledPinHandle;
-static PIN_State ledPinState;
-
-/*
- * Application LED pin configuration table:
- *   - All LEDs board LEDs are off.
- */
-PIN_Config pinTable[] =
-{
-    Board_LED1 | PIN_GPIO_OUTPUT_EN | PIN_GPIO_LOW | PIN_PUSHPULL | PIN_DRVSTR_MAX,
-    PIN_TERMINATE
-};
-
-
-/***** Defines *****/
-#define TX_TASK_STACK_SIZE 1024
-#define TX_TASK_PRIORITY   2
 
 /* Packet TX Configuration */
-#define PAYLOAD_LENGTH      1 //30
+#define PAYLOAD_LENGTH      4 //30
 #define PACKET_INTERVAL     (uint32_t)(4000000*0.5f) /* Set packet interval to 500ms */
 #define TASKSTACKSIZE    (768)
 #define ADCBUFFERSIZE    (1)
 
+/***** ADC Params and Variables *****/
 Task_Struct task0Struct;
 Char task0Stack[TASKSTACKSIZE];
 uint16_t sampleBufferOne[ADCBUFFERSIZE];
 uint16_t sampleBufferTwo[ADCBUFFERSIZE];
 uint32_t microVoltBuffer[ADCBUFFERSIZE];
-uint32_t buffersCompletedCounter = 0;
-// uint_fast16_t uartOutputBufferSize = 0;
 
-
-uint8_t sentPacket[PAYLOAD_LENGTH];
-
-
-char endLineSequence[] = "end";
+/***** RF Params and Variables *****/
+static RF_Object rfObject;
+static RF_Handle rfHandle;
+RF_ScheduleCmdParams rfScheduleParams;
+static uint8_t packet[PAYLOAD_LENGTH];
 uint32_t time = 0;
 
-/*
- * This function is called whenever a buffer is full.
- * The content of the buffer is then converted into human-readable format and
- * sent to the PC via UART.
- *
- */
-void adcBufCallback(ADCBuf_Handle handle, ADCBuf_Conversion *conversion,
-    void *completedADCBuffer, uint32_t completedChannel) {
+void sendDataViaRf(uint32_t value);
+
+void adcBufCallback(ADCBuf_Handle handle, ADCBuf_Conversion *conversion, void *completedADCBuffer, uint32_t completedChannel) {
 
     ADCBuf_adjustRawValues(handle, completedADCBuffer, ADCBUFFERSIZE, completedChannel);
     ADCBuf_convertAdjustedToMicroVolts(handle, completedChannel, completedADCBuffer, microVoltBuffer, ADCBUFFERSIZE);
-    //sentPacket = microVoltBuffer[0];
-//    uartOutputBufferSize = System_sprintf(uartWriteBuffer, "%d,%d;", time++, microVoltBuffer[0]);
-//    UART_write(uart, uartWriteBuffer, uartOutputBufferSize + 1);
-//    UART_read(uart, uartReadBuffer, UART_READ_BUFFER_SIZE);
+
+    sendDataViaRf(microVoltBuffer[0]);
 }
 
-/*
- *  ======== conversionStartFxn ========
- *  Task for this function is created statically. See the project's .cfg file.
- */
-void conversionStartFxn(UArg arg0, UArg arg1) {
+void sendDataViaRf(uint32_t value) {
+    time += PACKET_INTERVAL;
+    RF_cmdPropTx.startTime = time;
+
+    memcpy(packet, (void*) value, sizeof(value));
+
+    RF_scheduleCmd(rfHandle, (RF_Op*) &RF_cmdPropTx, &rfScheduleParams, NULL, 0);
+}
+
+void startADCConversion(UArg arg0, UArg arg1) {
     ADCBuf_Handle adcBuf;
     ADCBuf_Params adcBufParams;
     ADCBuf_Conversion continuousConversionChannel;
@@ -153,131 +130,42 @@ void conversionStartFxn(UArg arg0, UArg arg1) {
     Task_sleep(BIOS_WAIT_FOREVER);
 }
 
-/***** Prototypes *****/
-static void txTaskFunction(UArg arg0, UArg arg1);
-
-/***** Variable declarations *****/
-static Task_Params txTaskParams;
-Task_Struct txTask;    /* not static so you can see in ROV */
-static uint8_t txTaskStack[TX_TASK_STACK_SIZE];
-
-static RF_Object rfObject;
-static RF_Handle rfHandle;
-
-uint32_t time;
-static uint8_t packet[PAYLOAD_LENGTH];
-//static uint16_t seqNumber;
-static PIN_Handle pinHandle;
-
-
-/***** Function definitions *****/
-void TxTask_init(PIN_Handle inPinHandle)
+void initialiseTransmissionParameters()
 {
-    pinHandle = inPinHandle;
-
-    Task_Params_init(&txTaskParams);
-    txTaskParams.stackSize = TX_TASK_STACK_SIZE;
-    txTaskParams.priority = TX_TASK_PRIORITY;
-    txTaskParams.stack = &txTaskStack;
-    txTaskParams.arg0 = (UInt)1000000;
-
-    Task_construct(&txTask, txTaskFunction, &txTaskParams, NULL);
-}
-
-static void txTaskFunction(UArg arg0, UArg arg1)
-{
-    uint_fast16_t bufferSize = 0;
-
-    uint32_t time;
     RF_Params rfParams;
     RF_Params_init(&rfParams);
 
+    rfScheduleParams.endTime = -1;
+    rfScheduleParams.priority = RF_PriorityNormal;
+
     RF_cmdPropTx.pktLen = PAYLOAD_LENGTH;
     RF_cmdPropTx.pPkt = packet;
-    RF_cmdPropTx.startTrigger.triggerType = TRIG_ABSTIME;
+    RF_cmdPropTx.startTrigger.triggerType = TRIG_NOW;
     RF_cmdPropTx.startTrigger.pastTrig = 1;
     RF_cmdPropTx.startTime = 0;
 
-    /* Request access to the radio */
     rfHandle = RF_open(&rfObject, &RF_prop, (RF_RadioSetup*)&RF_cmdPropRadioDivSetup, &rfParams);
-
-    /* Set the frequency */
-    RF_postCmd(rfHandle, (RF_Op*)&RF_cmdFs, RF_PriorityNormal, NULL, 0);
-
-    /* Get current time */
-    time = RF_getCurrentTime();
-    while(1)
-    {
-        /* Create packet with incrementing sequence number and random payload */
-        uint8_t i;
-        for (i = 0; i < PAYLOAD_LENGTH; i=i+5)
-        {
-            memcpy(packet[i], time, 1);
-            memcpy(packet[i+1], microVoltBuffer[0], 1);
-            memcpy(packet[i+2], microVoltBuffer[1], 1);
-            memcpy(packet[i+3], microVoltBuffer[2], 1);
-            memcpy(packet[i+4], microVoltBuffer[3], 1);
-        }
-
-        /* Set absolute TX time to utilize automatic power management */
-        time += PACKET_INTERVAL;
-        RF_cmdPropTx.startTime = time;
-
-        /* Send packet */
-        RF_EventMask result = RF_runCmd(rfHandle, (RF_Op*)&RF_cmdPropTx, RF_PriorityNormal, NULL, 0);
-        if (!(result & RF_EventLastCmdDone))
-        {
-            /* Error */
-            while(1);
-        }
-
-        PIN_setOutputValue(pinHandle, Board_LED1,!PIN_getOutputValue(Board_LED1));
-    }
-
 }
 
-/*
- *  ======== main ========
- *  Main consists of two parts: ADC which converts sensor value to digital and the second part which transmits the digital value to the launchtag by RF
- */
+void startConversionTask() {
+    Task_Params taskParams;
+    Task_Params_init(&taskParams);
+    taskParams.stackSize = TASKSTACKSIZE;
+    taskParams.stack = &task0Stack;
+
+    Task_construct(&task0Struct, (Task_FuncPtr) startADCConversion, &taskParams, NULL);
+}
+
 int main(void)
 {
-    Task_Params taskParams;
-
     /* Call board init functions. */
     Board_initGeneral();
     Board_initADCBuf();
 
-    /* Open LED pins */
-    ledPinHandle = PIN_open(&ledPinState, pinTable);
-    if(!ledPinHandle)
-    {
-        System_abort("Error initializing board LED pins\n");
-    }
-
-    /* Construct BIOS objects */
-    Task_Params_init(&taskParams);
-    taskParams.stackSize = TASKSTACKSIZE;
-    taskParams.stack = &task0Stack;
-    /* Convert Analog to Digital by calling conversionStartFxn with taskParams */
-    Task_construct(&task0Struct, (Task_FuncPtr) conversionStartFxn,
-        &taskParams, NULL);
-
-
-    Display_print("Starting the ADC Continuous Sampling example\n"
-        "System provider is set to SysMin. Halt the target to view any SysMin "
-        "contents in ROV.\n");
-
-
-
     /* Initialize task */
-    /* call txTaskFunction which transmits */
-    TxTask_init(ledPinHandle);
+    initialiseTransmissionParameters();
 
-
-
-    /* SysMin will only print to the console when you call flush or exit */
-    System_flush();
+    startConversionTask();
 
     /* Start BIOS */
     BIOS_start();
