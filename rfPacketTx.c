@@ -31,6 +31,8 @@
  */
 
 /***** Includes *****/
+#include <string.h>
+#include <stdio.h>
 /***** RF Includes *****/
 #include <stdlib.h>
 #include <xdc/std.h>
@@ -77,7 +79,7 @@ PIN_Config pinTable[] =
 #define TX_TASK_PRIORITY   2
 
 /* Packet TX Configuration */
-#define PAYLOAD_LENGTH      1 //30
+#define PAYLOAD_LENGTH      5 //30
 #define PACKET_INTERVAL     (uint32_t)(4000000*0.5f) /* Set packet interval to 500ms */
 #define TASKSTACKSIZE    (768)
 #define ADCBUFFERSIZE    (1)
@@ -96,6 +98,16 @@ uint8_t sentPacket[PAYLOAD_LENGTH];
 
 char endLineSequence[] = "end";
 uint32_t time = 0;
+
+
+unsigned createMask(unsigned a, unsigned b)
+{
+   unsigned r = 0; unsigned i = 0;
+   for (i=a; i<=b; i++)
+       r |= 1 << i;
+
+   return r;
+}
 
 /*
  * This function is called whenever a buffer is full.
@@ -208,15 +220,22 @@ static void txTaskFunction(UArg arg0, UArg arg1)
     time = RF_getCurrentTime();
     while(1)
     {
+        uint8_t firstByte, secondByte, thirdByte, fourthByte;
+        firstByte = createMask(0,7);
+        secondByte = createMask(8,15);
+        thirdByte = createMask(16,23);
+        fourthByte = createMask(24,31);
+
+        //unsigned result = ;
         /* Create packet with incrementing sequence number and random payload */
         uint8_t i;
         for (i = 0; i < PAYLOAD_LENGTH; i=i+5)
         {
-            memcpy(packet[i], time, 1);
-            memcpy(packet[i+1], microVoltBuffer[0], 1);
-            memcpy(packet[i+2], microVoltBuffer[1], 1);
-            memcpy(packet[i+3], microVoltBuffer[2], 1);
-            memcpy(packet[i+4], microVoltBuffer[3], 1);
+            packet[i] = time ;
+            packet[i+1] = firstByte & microVoltBuffer[0] ;
+            packet[i+2] = secondByte & microVoltBuffer[0] ;
+            packet[i+3] = thirdByte & microVoltBuffer[0] ;
+            packet[i+4] = fourthByte & microVoltBuffer[0] ;
         }
 
         /* Set absolute TX time to utilize automatic power management */
@@ -264,9 +283,9 @@ int main(void)
         &taskParams, NULL);
 
 
-    Display_print("Starting the ADC Continuous Sampling example\n"
-        "System provider is set to SysMin. Halt the target to view any SysMin "
-        "contents in ROV.\n");
+    //System_sprint("Starting the ADC Continuous Sampling example\n"
+      //  "System provider is set to SysMin. Halt the target to view any SysMin "
+        //"contents in ROV.\n");
 
 
 
