@@ -31,217 +31,52 @@
  */
 
 /***** Includes *****/
-#include <string.h>
 #include <stdio.h>
-/***** RF Includes *****/
 #include <stdlib.h>
 #include <xdc/std.h>
 #include <xdc/runtime/System.h>
 #include <stdint.h>
-/***** ADC Includes *****/
 #include <ti/sysbios/BIOS.h>
-#include <ti/sysbios/knl/Task.h>
-/* XDCtools Header files */
-#include <xdc/std.h>
-#include <xdc/runtime/System.h>
-/* BIOS Header files */
-#include <ti/sysbios/BIOS.h>
-#include <ti/sysbios/knl/Task.h>
-/* TI-RTOS Header files */
-#include <ti/drivers/ADCBuf.h>
-/* Drivers */
-#include <ti/drivers/rf/RF.h>
-
 /* Board Header files */
 #include "Board.h"
+#include "RFSender.h"
+#include "ADCConverter.h"
+
+// Variables for thread communication
+uint8_t flagValue = 0; // 0 - No Value present, 1 - Value present
+uint32_t adcValue = 0;
+
 #include <ti/drivers/UART.h>
-
-#include "smartrf_settings/smartrf_settings.h"
-
-
-/* Packet TX Configuration */
-
-#define PAYLOAD_LENGTH      5 //30
-#define PACKET_INTERVAL     (uint32_t)(0.5f) /* Set packet interval to 500ms */
-#define TASKSTACKSIZE    (768)
-#define ADCBUFFERSIZE    (1)
 #define UART_WRITE_BUFFER_SIZE (30)
-
-/***** ADC Params and Variables *****/
-Task_Struct task0Struct;
-Char task0Stack[TASKSTACKSIZE];
-uint16_t sampleBufferOne[ADCBUFFERSIZE];
-uint16_t sampleBufferTwo[ADCBUFFERSIZE];
-uint32_t microVoltBuffer[ADCBUFFERSIZE];
-
-/***** RF Params and Variables *****/
-static RF_Object rfObject;
-static RF_Handle rfHandle;
-static uint8_t packet[PAYLOAD_LENGTH];
-uint32_t time = 0;
-
-ADCBuf_Handle adcBuf;
-ADCBuf_Conversion continuousConversionChannel;
-
-uint_fast16_t uartOutputBufferSize = 0;
+uint_fast16_t outputBufferSize = 0;
 UART_Handle uart;
 char uartWriteBuffer[UART_WRITE_BUFFER_SIZE];
 
 
-void sendDataViaRf(uint32_t value);
-void send(uint32_t value);
-
-unsigned createMask(unsigned a, unsigned b)
-{
-   unsigned r = 0; unsigned i = 0;
-   for (i=a; i<=b; i++)
-       r |= 1 << i;
-
-   return r;
-}
-
-void uartWriteCallback(UART_Handle handle, void *buf, size_t count) {
-    return;
-}
-
-/*
- * This function is called whenever a buffer is full.
- * The content of the buffer is then converted into human-readable format and
- * sent to the PC via UART.
- *
- */
-void adcBufCallback(ADCBuf_Handle handle, ADCBuf_Conversion *conversion, void *completedADCBuffer, uint32_t completedChannel) {
-    ADCBuf_adjustRawValues(handle, completedADCBuffer, ADCBUFFERSIZE, completedChannel);
-    ADCBuf_convertAdjustedToMicroVolts(handle, completedChannel, completedADCBuffer, microVoltBuffer, ADCBUFFERSIZE);
-
-    send(microVoltBuffer[0]);
-}
-
-void sendDataViaRf(uint32_t value) {
-    time += PACKET_INTERVAL;
-    RF_cmdPropTx.startTime = time;
-
-    memcpy(packet, &value, sizeof(value));
-
-    RF_postCmd(rfHandle, (RF_Op*) &RF_cmdPropTx, RF_PriorityNormal, NULL, 0);
-}
-
-void send(uint32_t value) {
-    // Set frequency
-    //RF_postCmd(rfHandle, (RF_Op*)&RF_cmdFs, RF_PriorityNormal, NULL, 0);
-
-    /* Get current time */
-    time = RF_getCurrentTime();
-
-    uint32_t firstByte, secondByte, thirdByte, fourthByte;
-    firstByte = createMask(0,7);
-    secondByte = createMask(8,15);
-    thirdByte = createMask(16,23);
-    fourthByte = createMask(24,31);
-
-    //unsigned result = ;
-    /* Create packet with incrementing sequence number and random payload */
-    uint8_t i;
-
-    packet[0] = time ;
-    packet[1] = firstByte & value ;
-    packet[2] = secondByte & value >> 8;
-    packet[3] = thirdByte & value >> 16;
-    packet[4] = fourthByte & value >> 24;
-
-
-    /* Set absolute TX time to utilize automatic power management */
-    time += PACKET_INTERVAL;
-    RF_cmdPropTx.startTime = time;
-
-    /* Send packet */
-    uartOutputBufferSize = System_sprintf(uartWriteBuffer, "Send\n");
-    UART_write(uart, uartWriteBuffer, uartOutputBufferSize + 1);
-
-    RF_runCmd(rfHandle, (RF_Op*)&RF_cmdPropTx, RF_PriorityNormal, NULL, 0);
-
-    uartOutputBufferSize = System_sprintf(uartWriteBuffer, "Sending finished\n");
-    UART_write(uart, uartWriteBuffer, uartOutputBufferSize + 1);
-
-    ADCBuf_convert(adcBuf, &continuousConversionChannel, 1);
-}
-
-void initialiseTransmissionParameters()
-{
-    RF_Params rfParams;
-    RF_Params_init(&rfParams);
-
-    RF_cmdPropTx.pktLen = PAYLOAD_LENGTH;
-    RF_cmdPropTx.pPkt = packet;
-    RF_cmdPropTx.startTrigger.triggerType = TRIG_NOW;
-    RF_cmdPropTx.startTrigger.pastTrig = 1;
-    RF_cmdPropTx.startTime = 0;
-
-    rfHandle = RF_open(&rfObject, &RF_prop, (RF_RadioSetup*)&RF_cmdPropRadioDivSetup, &rfParams);
-}
-
-void startADCConversion(UArg arg0, UArg arg1) {
-    ADCBuf_Params adcBufParams;
-
-    ADCBuf_Params_init(&adcBufParams);
-    adcBufParams.callbackFxn = adcBufCallback;
-    adcBufParams.recurrenceMode = ADCBuf_RECURRENCE_MODE_ONE_SHOT;
-    adcBufParams.returnMode = ADCBuf_RETURN_MODE_CALLBACK;
-    adcBufParams.samplingFrequency = 10;
-    adcBuf = ADCBuf_open(Board_ADCBuf0, &adcBufParams);
-
-    /* Configure the conversion struct */
-    continuousConversionChannel.arg = NULL;
-    continuousConversionChannel.adcChannel = CC1350_LAUNCHXL_ADCVDDS;
-    continuousConversionChannel.sampleBuffer = sampleBufferOne;
-    continuousConversionChannel.sampleBufferTwo = sampleBufferTwo;
-    continuousConversionChannel.samplesRequestedCount = ADCBUFFERSIZE;
-
-    if (!adcBuf){
-        System_abort("adcBuf did not open correctly\n");
-    }
-
-    /* Start converting. */
-    if (ADCBuf_convert(adcBuf, &continuousConversionChannel, 1) != ADCBuf_STATUS_SUCCESS) {
-        System_abort("Did not start conversion process correctly\n");
-    }
-
-    /*
-     * Go to sleep in the foreground thread forever. The data will be collected
-     * and transfered in the background thread
-     */
-    Task_sleep(BIOS_WAIT_FOREVER);
-}
-
-void startConversionTask() {
-    Task_Params taskParams;
-    Task_Params_init(&taskParams);
-    taskParams.stackSize = TASKSTACKSIZE;
-    taskParams.stack = &task0Stack;
-
-    Task_construct(&task0Struct, (Task_FuncPtr) startADCConversion, &taskParams, NULL);
-}
-
-int main(void)
-{
-    /* Call board init functions. */
+int main(void) {
     Board_initGeneral();
-    Board_initADCBuf();
 
     UART_Params uartParams;
     UART_Params_init(&uartParams);
     uartParams.writeDataMode = UART_DATA_BINARY;
-    uartParams.writeMode = UART_MODE_CALLBACK;
-    uartParams.writeCallback = uartWriteCallback;
+    uartParams.readDataMode = UART_DATA_BINARY;
+    uartParams.readReturnMode = UART_RETURN_FULL;
+    uartParams.readEcho = UART_ECHO_OFF;
     uartParams.baudRate = 115200;
+
     uart = UART_open(Board_UART0, &uartParams);
 
-    /* Initialize task */
-    initialiseTransmissionParameters();
+    if (uart == NULL) {
+        /* UART_open() failed */
+        while (1);
+    }
 
-    startConversionTask();
+    outputBufferSize = System_sprintf(uartWriteBuffer, "Starting:\r\n");
+    UART_write(uart, uartWriteBuffer, outputBufferSize + 1);
 
-    /* Start BIOS */
+    startRFTask(&adcValue, &flagValue, uart);
+    startADCTask(&adcValue, &flagValue, uart);
+
     BIOS_start();
 
     return (0);
