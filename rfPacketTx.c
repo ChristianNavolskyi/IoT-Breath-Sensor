@@ -89,6 +89,7 @@ unsigned createMask(unsigned a, unsigned b)
 }
 
 void sendDataViaRf(uint32_t value);
+void send(uint32_t value);
 
 /*
  * This function is called whenever a buffer is full.
@@ -100,14 +101,14 @@ void adcBufCallback(ADCBuf_Handle handle, ADCBuf_Conversion *conversion, void *c
     ADCBuf_adjustRawValues(handle, completedADCBuffer, ADCBUFFERSIZE, completedChannel);
     ADCBuf_convertAdjustedToMicroVolts(handle, completedChannel, completedADCBuffer, microVoltBuffer, ADCBUFFERSIZE);
 
-    sendDataViaRf(microVoltBuffer[0]);
+    send(microVoltBuffer[0]);
 }
 
 void sendDataViaRf(uint32_t value) {
     time += PACKET_INTERVAL;
     RF_cmdPropTx.startTime = time;
 
-    memcpy(packet, (void*) value, sizeof(value));
+    memcpy(packet, &value, sizeof(value));
 
     RF_postCmd(rfHandle, (RF_Op*) &RF_cmdPropTx, RF_PriorityNormal, NULL, 0);
 }
@@ -161,44 +162,37 @@ void initialiseTransmissionParameters()
     rfHandle = RF_open(&rfObject, &RF_prop, (RF_RadioSetup*)&RF_cmdPropRadioDivSetup, &rfParams);
 }
 
-void send() {
+void send(uint32_t value) {
     /* Set the frequency */
     RF_postCmd(rfHandle, (RF_Op*)&RF_cmdFs, RF_PriorityNormal, NULL, 0);
 
     /* Get current time */
     time = RF_getCurrentTime();
-    while(1)
+
+    uint32_t firstByte, secondByte, thirdByte, fourthByte;
+    firstByte = createMask(0,7);
+    secondByte = createMask(8,15);
+    thirdByte = createMask(16,23);
+    fourthByte = createMask(24,31);
+
+    //unsigned result = ;
+    /* Create packet with incrementing sequence number and random payload */
+    uint8_t i;
+    for (i = 0; i < PAYLOAD_LENGTH; i=i+5)
     {
-        uint8_t firstByte, secondByte, thirdByte, fourthByte;
-        firstByte = createMask(0,7);
-        secondByte = createMask(8,15);
-        thirdByte = createMask(16,23);
-        fourthByte = createMask(24,31);
-
-        //unsigned result = ;
-        /* Create packet with incrementing sequence number and random payload */
-        uint8_t i;
-        for (i = 0; i < PAYLOAD_LENGTH; i=i+5)
-        {
-            packet[i] = time ;
-            packet[i+1] = firstByte & microVoltBuffer[0] ;
-            packet[i+2] = secondByte & microVoltBuffer[0] ;
-            packet[i+3] = thirdByte & microVoltBuffer[0] ;
-            packet[i+4] = fourthByte & microVoltBuffer[0] ;
-        }
-
-        /* Set absolute TX time to utilize automatic power management */
-        time += PACKET_INTERVAL;
-        RF_cmdPropTx.startTime = time;
-
-        /* Send packet */
-        RF_EventMask result = RF_runCmd(rfHandle, (RF_Op*)&RF_cmdPropTx, RF_PriorityNormal, NULL, 0);
-        if (!(result & RF_EventLastCmdDone))
-        {
-            /* Error */
-            while(1);
-        }
+        packet[i] = time ;
+        packet[i+1] = firstByte & value ;
+        packet[i+2] = secondByte & value >> 8;
+        packet[i+3] = thirdByte & value >> 16;
+        packet[i+4] = fourthByte & value >> 24;
     }
+
+    /* Set absolute TX time to utilize automatic power management */
+    time += PACKET_INTERVAL;
+    RF_cmdPropTx.startTime = time;
+
+    /* Send packet */
+    RF_runCmd(rfHandle, (RF_Op*)&RF_cmdPropTx, RF_PriorityNormal, NULL, 0);
 }
 
 void startConversionTask() {
