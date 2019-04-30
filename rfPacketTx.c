@@ -54,6 +54,7 @@
 
 /* Board Header files */
 #include "Board.h"
+#include <ti/drivers/UART.h>
 
 #include "smartrf_settings/smartrf_settings.h"
 
@@ -61,9 +62,10 @@
 /* Packet TX Configuration */
 
 #define PAYLOAD_LENGTH      5 //30
-#define PACKET_INTERVAL     (uint32_t)(4000000*0.5f) /* Set packet interval to 500ms */
+#define PACKET_INTERVAL     (uint32_t)(0.5f) /* Set packet interval to 500ms */
 #define TASKSTACKSIZE    (768)
 #define ADCBUFFERSIZE    (1)
+#define UART_WRITE_BUFFER_SIZE (30)
 
 /***** ADC Params and Variables *****/
 Task_Struct task0Struct;
@@ -78,6 +80,16 @@ static RF_Handle rfHandle;
 static uint8_t packet[PAYLOAD_LENGTH];
 uint32_t time = 0;
 
+ADCBuf_Handle adcBuf;
+ADCBuf_Conversion continuousConversionChannel;
+
+uint_fast16_t uartOutputBufferSize = 0;
+UART_Handle uart;
+char uartWriteBuffer[UART_WRITE_BUFFER_SIZE];
+
+
+void sendDataViaRf(uint32_t value);
+void send(uint32_t value);
 
 unsigned createMask(unsigned a, unsigned b)
 {
@@ -88,8 +100,9 @@ unsigned createMask(unsigned a, unsigned b)
    return r;
 }
 
-void sendDataViaRf(uint32_t value);
-void send(uint32_t value);
+void uartWriteCallback(UART_Handle handle, void *buf, size_t count) {
+    return;
+}
 
 /*
  * This function is called whenever a buffer is full.
@@ -113,14 +126,66 @@ void sendDataViaRf(uint32_t value) {
     RF_postCmd(rfHandle, (RF_Op*) &RF_cmdPropTx, RF_PriorityNormal, NULL, 0);
 }
 
+void send(uint32_t value) {
+    // Set frequency
+    //RF_postCmd(rfHandle, (RF_Op*)&RF_cmdFs, RF_PriorityNormal, NULL, 0);
+
+    /* Get current time */
+    time = RF_getCurrentTime();
+
+    uint32_t firstByte, secondByte, thirdByte, fourthByte;
+    firstByte = createMask(0,7);
+    secondByte = createMask(8,15);
+    thirdByte = createMask(16,23);
+    fourthByte = createMask(24,31);
+
+    //unsigned result = ;
+    /* Create packet with incrementing sequence number and random payload */
+    uint8_t i;
+
+    packet[0] = time ;
+    packet[1] = firstByte & value ;
+    packet[2] = secondByte & value >> 8;
+    packet[3] = thirdByte & value >> 16;
+    packet[4] = fourthByte & value >> 24;
+
+
+    /* Set absolute TX time to utilize automatic power management */
+    time += PACKET_INTERVAL;
+    RF_cmdPropTx.startTime = time;
+
+    /* Send packet */
+    uartOutputBufferSize = System_sprintf(uartWriteBuffer, "Send\n");
+    UART_write(uart, uartWriteBuffer, uartOutputBufferSize + 1);
+
+    RF_runCmd(rfHandle, (RF_Op*)&RF_cmdPropTx, RF_PriorityNormal, NULL, 0);
+
+    uartOutputBufferSize = System_sprintf(uartWriteBuffer, "Sending finished\n");
+    UART_write(uart, uartWriteBuffer, uartOutputBufferSize + 1);
+
+    ADCBuf_convert(adcBuf, &continuousConversionChannel, 1);
+}
+
+void initialiseTransmissionParameters()
+{
+    RF_Params rfParams;
+    RF_Params_init(&rfParams);
+
+    RF_cmdPropTx.pktLen = PAYLOAD_LENGTH;
+    RF_cmdPropTx.pPkt = packet;
+    RF_cmdPropTx.startTrigger.triggerType = TRIG_NOW;
+    RF_cmdPropTx.startTrigger.pastTrig = 1;
+    RF_cmdPropTx.startTime = 0;
+
+    rfHandle = RF_open(&rfObject, &RF_prop, (RF_RadioSetup*)&RF_cmdPropRadioDivSetup, &rfParams);
+}
+
 void startADCConversion(UArg arg0, UArg arg1) {
-    ADCBuf_Handle adcBuf;
     ADCBuf_Params adcBufParams;
-    ADCBuf_Conversion continuousConversionChannel;
 
     ADCBuf_Params_init(&adcBufParams);
     adcBufParams.callbackFxn = adcBufCallback;
-    adcBufParams.recurrenceMode = ADCBuf_RECURRENCE_MODE_CONTINUOUS;
+    adcBufParams.recurrenceMode = ADCBuf_RECURRENCE_MODE_ONE_SHOT;
     adcBufParams.returnMode = ADCBuf_RETURN_MODE_CALLBACK;
     adcBufParams.samplingFrequency = 10;
     adcBuf = ADCBuf_open(Board_ADCBuf0, &adcBufParams);
@@ -148,53 +213,6 @@ void startADCConversion(UArg arg0, UArg arg1) {
     Task_sleep(BIOS_WAIT_FOREVER);
 }
 
-void initialiseTransmissionParameters()
-{
-    RF_Params rfParams;
-    RF_Params_init(&rfParams);
-
-    RF_cmdPropTx.pktLen = PAYLOAD_LENGTH;
-    RF_cmdPropTx.pPkt = packet;
-    RF_cmdPropTx.startTrigger.triggerType = TRIG_NOW;
-    RF_cmdPropTx.startTrigger.pastTrig = 1;
-    RF_cmdPropTx.startTime = 0;
-
-    rfHandle = RF_open(&rfObject, &RF_prop, (RF_RadioSetup*)&RF_cmdPropRadioDivSetup, &rfParams);
-}
-
-void send(uint32_t value) {
-    /* Set the frequency */
-    RF_postCmd(rfHandle, (RF_Op*)&RF_cmdFs, RF_PriorityNormal, NULL, 0);
-
-    /* Get current time */
-    time = RF_getCurrentTime();
-
-    uint32_t firstByte, secondByte, thirdByte, fourthByte;
-    firstByte = createMask(0,7);
-    secondByte = createMask(8,15);
-    thirdByte = createMask(16,23);
-    fourthByte = createMask(24,31);
-
-    //unsigned result = ;
-    /* Create packet with incrementing sequence number and random payload */
-    uint8_t i;
-    for (i = 0; i < PAYLOAD_LENGTH; i=i+5)
-    {
-        packet[i] = time ;
-        packet[i+1] = firstByte & value ;
-        packet[i+2] = secondByte & value >> 8;
-        packet[i+3] = thirdByte & value >> 16;
-        packet[i+4] = fourthByte & value >> 24;
-    }
-
-    /* Set absolute TX time to utilize automatic power management */
-    time += PACKET_INTERVAL;
-    RF_cmdPropTx.startTime = time;
-
-    /* Send packet */
-    RF_runCmd(rfHandle, (RF_Op*)&RF_cmdPropTx, RF_PriorityNormal, NULL, 0);
-}
-
 void startConversionTask() {
     Task_Params taskParams;
     Task_Params_init(&taskParams);
@@ -209,6 +227,14 @@ int main(void)
     /* Call board init functions. */
     Board_initGeneral();
     Board_initADCBuf();
+
+    UART_Params uartParams;
+    UART_Params_init(&uartParams);
+    uartParams.writeDataMode = UART_DATA_BINARY;
+    uartParams.writeMode = UART_MODE_CALLBACK;
+    uartParams.writeCallback = uartWriteCallback;
+    uartParams.baudRate = 115200;
+    uart = UART_open(Board_UART0, &uartParams);
 
     /* Initialize task */
     initialiseTransmissionParameters();
