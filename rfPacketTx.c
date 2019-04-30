@@ -75,7 +75,6 @@ uint32_t microVoltBuffer[ADCBUFFERSIZE];
 /***** RF Params and Variables *****/
 static RF_Object rfObject;
 static RF_Handle rfHandle;
-RF_ScheduleCmdParams rfScheduleParams;
 static uint8_t packet[PAYLOAD_LENGTH];
 uint32_t time = 0;
 
@@ -110,7 +109,7 @@ void sendDataViaRf(uint32_t value) {
 
     memcpy(packet, (void*) value, sizeof(value));
 
-    RF_scheduleCmd(rfHandle, (RF_Op*) &RF_cmdPropTx, &rfScheduleParams, NULL, 0);
+    RF_postCmd(rfHandle, (RF_Op*) &RF_cmdPropTx, RF_PriorityNormal, NULL, 0);
 }
 
 void startADCConversion(UArg arg0, UArg arg1) {
@@ -152,9 +151,6 @@ void initialiseTransmissionParameters()
 {
     RF_Params rfParams;
     RF_Params_init(&rfParams);
-
-    rfScheduleParams.endTime = -1;
-    rfScheduleParams.priority = RF_PriorityNormal;
 
     RF_cmdPropTx.pktLen = PAYLOAD_LENGTH;
     RF_cmdPropTx.pPkt = packet;
