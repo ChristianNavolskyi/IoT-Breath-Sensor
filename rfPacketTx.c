@@ -163,44 +163,42 @@ void initialiseTransmissionParameters()
 
 void send() {
     /* Set the frequency */
-        RF_postCmd(rfHandle, (RF_Op*)&RF_cmdFs, RF_PriorityNormal, NULL, 0);
+    RF_postCmd(rfHandle, (RF_Op*)&RF_cmdFs, RF_PriorityNormal, NULL, 0);
 
-        /* Get current time */
-        time = RF_getCurrentTime();
-        while(1)
+    /* Get current time */
+    time = RF_getCurrentTime();
+    while(1)
+    {
+        uint8_t firstByte, secondByte, thirdByte, fourthByte;
+        firstByte = createMask(0,7);
+        secondByte = createMask(8,15);
+        thirdByte = createMask(16,23);
+        fourthByte = createMask(24,31);
+
+        //unsigned result = ;
+        /* Create packet with incrementing sequence number and random payload */
+        uint8_t i;
+        for (i = 0; i < PAYLOAD_LENGTH; i=i+5)
         {
-            uint8_t firstByte, secondByte, thirdByte, fourthByte;
-            firstByte = createMask(0,7);
-            secondByte = createMask(8,15);
-            thirdByte = createMask(16,23);
-            fourthByte = createMask(24,31);
+            packet[i] = time ;
+            packet[i+1] = firstByte & microVoltBuffer[0] ;
+            packet[i+2] = secondByte & microVoltBuffer[0] ;
+            packet[i+3] = thirdByte & microVoltBuffer[0] ;
+            packet[i+4] = fourthByte & microVoltBuffer[0] ;
+        }
 
-            //unsigned result = ;
-            /* Create packet with incrementing sequence number and random payload */
-            uint8_t i;
-            for (i = 0; i < PAYLOAD_LENGTH; i=i+5)
-            {
-                packet[i] = time ;
-                packet[i+1] = firstByte & microVoltBuffer[0] ;
-                packet[i+2] = secondByte & microVoltBuffer[0] ;
-                packet[i+3] = thirdByte & microVoltBuffer[0] ;
-                packet[i+4] = fourthByte & microVoltBuffer[0] ;
-            }
+        /* Set absolute TX time to utilize automatic power management */
+        time += PACKET_INTERVAL;
+        RF_cmdPropTx.startTime = time;
 
-            /* Set absolute TX time to utilize automatic power management */
-            time += PACKET_INTERVAL;
-            RF_cmdPropTx.startTime = time;
-
-            /* Send packet */
-            RF_EventMask result = RF_runCmd(rfHandle, (RF_Op*)&RF_cmdPropTx, RF_PriorityNormal, NULL, 0);
-            if (!(result & RF_EventLastCmdDone))
-            {
-                /* Error */
-                while(1);
-            }
-
-      }
-
+        /* Send packet */
+        RF_EventMask result = RF_runCmd(rfHandle, (RF_Op*)&RF_cmdPropTx, RF_PriorityNormal, NULL, 0);
+        if (!(result & RF_EventLastCmdDone))
+        {
+            /* Error */
+            while(1);
+        }
+    }
 }
 
 void startConversionTask() {
