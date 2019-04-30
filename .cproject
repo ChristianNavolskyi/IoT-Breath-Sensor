@@ -101,6 +101,7 @@
 									<listOptionValue builtIn="false" value="${COM_TI_RTSC_TIRTOSCC13XX_CC26XX_REPOS}"/>
 								</option>
 								<option id="com.ti.rtsc.buildDefinitions.XDC_3.16.tool.COMPILE_OPTIONS.1267485485" name="Additional compiler options (--compileOptions)" superClass="com.ti.rtsc.buildDefinitions.XDC_3.16.tool.COMPILE_OPTIONS" useByScannerDiscovery="false" value="&quot;${COMPILER_FLAGS} &quot;" valueType="string"/>
+								<option id="com.ti.rtsc.buildDefinitions.XDC_3.16.tool.VERBOSE.1921291096" superClass="com.ti.rtsc.buildDefinitions.XDC_3.16.tool.VERBOSE" value="true" valueType="boolean"/>
 							</tool>
 						</toolChain>
 					</folderInfo>
