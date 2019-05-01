@@ -30,52 +30,22 @@
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/***** Includes *****/
-#include <stdio.h>
-#include <stdlib.h>
-#include <xdc/std.h>
-#include <xdc/runtime/System.h>
-#include <stdint.h>
-#include <ti/sysbios/BIOS.h>
-/* Board Header files */
 #include "Board.h"
 #include "RFSender.h"
 #include "ADCConverter.h"
+
+#include <ti/sysbios/BIOS.h>
 
 // Variables for thread communication
 uint8_t flagValue = 0; // 0 - No Value present, 1 - Value present
 uint32_t adcValue = 0;
 
-#include <ti/drivers/UART.h>
-#define UART_WRITE_BUFFER_SIZE (30)
-uint_fast16_t outputBufferSize = 0;
-UART_Handle uart;
-char uartWriteBuffer[UART_WRITE_BUFFER_SIZE];
-
 
 int main(void) {
     Board_initGeneral();
 
-    UART_Params uartParams;
-    UART_Params_init(&uartParams);
-    uartParams.writeDataMode = UART_DATA_BINARY;
-    uartParams.readDataMode = UART_DATA_BINARY;
-    uartParams.readReturnMode = UART_RETURN_FULL;
-    uartParams.readEcho = UART_ECHO_OFF;
-    uartParams.baudRate = 115200;
-
-    uart = UART_open(Board_UART0, &uartParams);
-
-    if (uart == NULL) {
-        /* UART_open() failed */
-        while (1);
-    }
-
-    outputBufferSize = System_sprintf(uartWriteBuffer, "Starting:\r\n");
-    UART_write(uart, uartWriteBuffer, outputBufferSize + 1);
-
-    startRFTask(&adcValue, &flagValue, uart);
-    startADCTask(&adcValue, &flagValue, uart);
+    startRFTask(&adcValue, &flagValue);
+    startADCTask(&adcValue, &flagValue);
 
     BIOS_start();
 

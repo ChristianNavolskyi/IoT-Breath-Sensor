@@ -10,10 +10,10 @@
 
 
 /* Packet TX Configuration */
-#define PAYLOAD_LENGTH      4 //30
+#define PAYLOAD_LENGTH      5 //30
 #define PACKET_INTERVAL     (uint32_t)(40000*0.5f) /* Set packet interval to 500ms */
-#define TASKSTACKSIZE       (768)
-#define UART_WRITE_BUFFER_SIZE (30)
+#define TASKSTACKSIZE       (1024)
+#define RF_UART_WRITE_BUFFER_SIZE (100)
 
 /***** RF Params and Variables *****/
 Task_Struct rfTask;
@@ -28,9 +28,9 @@ uint32_t time = 0;
 static uint32_t *resultPtr;
 static uint8_t *resultPresentFlag;
 
+UART_Handle rfUart;
 uint_fast16_t rfUartOutputBufferSize = 0;
-static UART_Handle uart;
-char uartWriteBuffer[UART_WRITE_BUFFER_SIZE];
+char rfUartWriteBuffer[RF_UART_WRITE_BUFFER_SIZE];
 
 
 unsigned createMask(unsigned a, unsigned b) {
@@ -42,8 +42,8 @@ unsigned createMask(unsigned a, unsigned b) {
 }
 
 void sendDataViaRf() {
-    rfUartOutputBufferSize = System_sprintf(uartWriteBuffer, "Sending value: $d\r\n", *resultPtr);
-    UART_write(uart, uartWriteBuffer, rfUartOutputBufferSize + 1);
+    rfUartOutputBufferSize = System_sprintf(rfUartWriteBuffer, "RF: Sending value with memcpy: %d\r\n", *resultPtr);
+    UART_write(rfUart, rfUartWriteBuffer, rfUartOutputBufferSize + 1);
 
     time += PACKET_INTERVAL;
     RF_cmdPropTx.startTime = time;
@@ -54,6 +54,9 @@ void sendDataViaRf() {
 }
 
 void send(uint32_t value) {
+    rfUartOutputBufferSize = System_sprintf(rfUartWriteBuffer, "RF: Sending value with shifting: %d\r\n", *resultPtr);
+    UART_write(rfUart, rfUartWriteBuffer, rfUartOutputBufferSize + 1);
+
     // Set frequency
     RF_postCmd(rfHandle, (RF_Op*)&RF_cmdFs, RF_PriorityNormal, NULL, 0);
 
@@ -90,9 +93,17 @@ void initialiseTransmissionParameters() {
     RF_cmdPropTx.startTime = 0;
 
     rfHandle = RF_open(&rfObject, &RF_prop, (RF_RadioSetup*)&RF_cmdPropRadioDivSetup, &rfParams);
+
+    if (rfHandle == NULL) {
+        rfUartOutputBufferSize = System_sprintf(rfUartWriteBuffer, "RF: Ending\r\n");
+        UART_write(rfUart, rfUartWriteBuffer, rfUartOutputBufferSize + 1);
+    }
 }
 
 void waitUntilValueIsPresent() {
+    rfUartOutputBufferSize = System_sprintf(rfUartWriteBuffer, "RF: Waiting\r\n");
+    UART_write(rfUart, rfUartWriteBuffer, rfUartOutputBufferSize + 1);
+
     while (*resultPresentFlag == 0);
 }
 
@@ -107,21 +118,36 @@ void transmittValue() {
     transmittValue();
 }
 
-void startRFTransmission(UArg arg0, UArg arg1) {
-    rfUartOutputBufferSize = System_sprintf(uartWriteBuffer, "Starting RF transmission\r\n");
-    UART_write(uart, uartWriteBuffer, rfUartOutputBufferSize + 1);
+void setupRFUart() {
+    UART_Params uartParams;
+    UART_Params_init(&uartParams);
+    uartParams.writeDataMode = UART_DATA_TEXT;
+    uartParams.readDataMode = UART_DATA_BINARY;
+    uartParams.readReturnMode = UART_RETURN_FULL;
+    uartParams.readEcho = UART_ECHO_OFF;
+    uartParams.baudRate = 115200;
+
+    rfUart = UART_open(Board_UART, &uartParams);
+
+    if (rfUart == NULL) {
+        /* UART_open() failed */
+        System_abort("RF: UART could not be opened.");
+    }
+}
+
+void *startRFTransmission(void* arg0) {
+    setupRFUart();
+
+    rfUartOutputBufferSize = System_sprintf(rfUartWriteBuffer, "RF: startRFTransmission\r\n");
+    UART_write(rfUart, rfUartWriteBuffer, rfUartOutputBufferSize + 1);
 
     initialiseTransmissionParameters();
     transmittValue();
 }
 
-void startRFTask(uint32_t *adcValuePtr, uint8_t *adcValuePresentFlag, UART_Handle uartHandle) {
-    rfUartOutputBufferSize = System_sprintf(uartWriteBuffer, "Construct RF task\r\n");
-    UART_write(uartHandle, uartWriteBuffer, rfUartOutputBufferSize + 1);
-
+void startRFTask(uint32_t *adcValuePtr, uint8_t *adcValuePresentFlag) {
     resultPtr = adcValuePtr;
     resultPresentFlag = adcValuePresentFlag;
-    uart = uartHandle;
 
     Task_Params taskParams;
     Task_Params_init(&taskParams);

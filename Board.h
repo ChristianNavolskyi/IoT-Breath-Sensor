@@ -38,6 +38,7 @@ extern "C" {
 #endif
 
 #include <ti/drivers/Power.h>
+#include <xdc/runtime/System.h>
 
 #include "CC1350_LAUNCHXL.h"
 

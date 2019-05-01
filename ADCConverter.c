@@ -1,4 +1,5 @@
 #include "Board.h"
+#include "stdio.h"
 
 #include <ti/drivers/ADCBuf.h>
 #include <ti/drivers/UART.h>
@@ -8,9 +9,9 @@
 #include <xdc/runtime/System.h>
 
 
-#define TASKSTACKSIZE    (768)
+#define TASKSTACKSIZE    (1024)
 #define ADCBUFFERSIZE    (1)
-#define UART_WRITE_BUFFER_SIZE (30)
+#define ADC_UART_WRITE_BUFFER_SIZE (100)
 
 /***** ADC Params and Variables *****/
 Task_Struct adcTask;
@@ -26,17 +27,36 @@ uint32_t microVoltBuffer[ADCBUFFERSIZE];
 static uint32_t *resultPtr;
 static uint8_t *resultPresentFlag;
 
-uint_fast16_t uartOutputBufferSize = 0;
-static UART_Handle uart;
-char uartWriteBuffer[UART_WRITE_BUFFER_SIZE];
+UART_Handle adcUart;
+
+
+void print(const char* string, ...) {
+    va_list args;
+    va_start(args, string);
+
+    uint_fast16_t size = 0;
+    char buffer[ADC_UART_WRITE_BUFFER_SIZE];
+
+    size = System_sprintf(buffer, string, args);
+    UART_write(adcUart, buffer, size + 1);
+
+    va_end(args);
+}
+
 
 void waitUntilRFTransmitterHasReadValue() {
-    while(*resultPresentFlag == 1);
+    print("ADC: Start waiting\r\n");
+
+    //while(*resultPresentFlag == 1);
+
+    print("ADC: Waiting finished\r\n");
 }
 
 void setValueAndFlagForRFTransmitter(uint32_t value) {
     *resultPtr = value;
     *resultPresentFlag = 1;
+
+    print("ADC: Setting value: %d\r\n", *resultPtr);
 }
 
 void startNextADCConversion() {
@@ -49,8 +69,7 @@ void adcBufCallback(ADCBuf_Handle handle, ADCBuf_Conversion *conversion, void *c
     ADCBuf_adjustRawValues(handle, completedADCBuffer, ADCBUFFERSIZE, completedChannel);
     ADCBuf_convertAdjustedToMicroVolts(handle, completedChannel, completedADCBuffer, microVoltBuffer, ADCBUFFERSIZE);
 
-    uartOutputBufferSize = System_sprintf(uartWriteBuffer, "Received value: $d\r\n", microVoltBuffer[0]);
-    UART_write(uart, uartWriteBuffer, uartOutputBufferSize + 1);
+    print("ADC: Received value: %d\r\n", microVoltBuffer[0]);
 
     waitUntilRFTransmitterHasReadValue();
     setValueAndFlagForRFTransmitter(microVoltBuffer[0]);
@@ -73,9 +92,23 @@ void setupADCBufAndParams(ADCBuf_Params *adcBufParams) {
     adcBufParams->samplingFrequency = 10;
 }
 
-void startADCConversion(UArg arg0, UArg arg1) {
-    uartOutputBufferSize = System_sprintf(uartWriteBuffer, "Start ADC conversion\r\n");
-    UART_write(uart, uartWriteBuffer, uartOutputBufferSize + 1);
+void setupADCUart() {
+    UART_Params uartParams;
+    UART_Params_init(&uartParams);
+    uartParams.writeDataMode = UART_DATA_BINARY;
+    uartParams.writeMode = UART_MODE_CALLBACK;
+    uartParams.baudRate = 115200;
+
+    adcUart = UART_open(Board_UART, &uartParams);
+
+    if (adcUart == NULL) {
+        /* UART_open() failed */
+        System_abort("ADC: UART could not be opened.");
+    }
+}
+
+void *startADCConversion(void* arg0) {
+    setupADCUart();
 
     ADCBuf_Params adcBufParams;
 
@@ -85,22 +118,23 @@ void startADCConversion(UArg arg0, UArg arg1) {
     configureConversionChannel();
 
     if (!adcBuf){
+        print("ADC: Ending ADC\r\n");
+
         System_abort("adcBuf did not open correctly\n");
     }
 
     startNextADCConversion();
-
-    /*
-     * Go to sleep in the foreground thread forever. The data will be collected
-     * and transfered in the background thread
-     */
-    Task_sleep(BIOS_WAIT_FOREVER);
 }
 
-void startADCTask(uint32_t *adcValuePtr, uint8_t *adcValuePresentFlag, UART_Handle uartHandle) {
+void startADCTask(uint32_t *adcValuePtr, uint8_t *adcValuePresentFlag) {
     resultPtr = adcValuePtr;
     resultPresentFlag = adcValuePresentFlag;
-    uart = uartHandle;
+
+//    while (1) {
+//        const unsigned char hello[] = "Hello World\n";
+//
+//        UART_write(adcUart, hello, sizeof(hello));
+//    }
 
     Board_initADCBuf();
 
@@ -108,9 +142,6 @@ void startADCTask(uint32_t *adcValuePtr, uint8_t *adcValuePresentFlag, UART_Hand
     Task_Params_init(&taskParams);
     taskParams.stackSize = TASKSTACKSIZE;
     taskParams.stack = &adcTaskStack;
-
-    uartOutputBufferSize = System_sprintf(uartWriteBuffer, "Construct ADC task\r\n");
-    UART_write(uart, uartWriteBuffer, uartOutputBufferSize + 1);
 
     Task_construct(&adcTask, (Task_FuncPtr) startADCConversion, &taskParams, NULL);
 }
