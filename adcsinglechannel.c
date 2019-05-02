@@ -55,7 +55,7 @@
 #include "smartrf_settings/smartrf_settings.h"
 
 
-#define THREADSTACKSIZE   (512)
+/* ADC properties */
 #define ADCBUFFERSIZE    (1)
 
 uint16_t sampleBufferOne[ADCBUFFERSIZE];
@@ -67,9 +67,9 @@ uint32_t microVoltBuffer[ADCBUFFERSIZE];
 /* Packet TX Configuration */
 #define PAYLOAD_LENGTH      30
 #ifdef POWER_MEASUREMENT
-#define PACKET_INTERVAL     1  /* For power measurement set packet interval to 5s */
+#define PACKET_INTERVAL     5  /* For power measurement set packet interval to 5s */
 #else
-#define PACKET_INTERVAL     500000  /* Set packet interval to 500000us or 500ms */
+#define PACKET_INTERVAL     1000000  /* Set packet interval to 1000000µs */
 #endif
 
 /***** Variable declarations *****/
@@ -98,11 +98,6 @@ PIN_Config pinTable[] =
     PIN_TERMINATE
 };
 
-
-// Display for UART debugging
-static Display_Handle display;
-
-
 // ADC value and flag for thread communication
 volatile static uint32_t adcValue = 0;
 volatile static uint8_t valueFlag = 0; // 0 - no value present, 1 - value present
@@ -117,7 +112,7 @@ void adcBufCallback(ADCBuf_Handle handle, ADCBuf_Conversion *conversion, void *c
     ADCBuf_adjustRawValues(handle, completedADCBuffer, ADCBUFFERSIZE, completedChannel);
     ADCBuf_convertAdjustedToMicroVolts(handle, completedChannel, completedADCBuffer, microVoltBuffer, ADCBUFFERSIZE);
 
-    Display_printf(display, 0, 0, "ADC: Read value: %d\n", microVoltBuffer[0]);
+    Display_printf(*(Display_Handle *) conversion->arg, 0, 0, "ADC: Read value: %d\n", microVoltBuffer[0]);
 
 //    if (ADCBuf_convert(handle, conversion, 1) != ADCBuf_STATUS_SUCCESS) {
 //        /* Did not start conversion process correctly. */
@@ -128,6 +123,8 @@ void adcBufCallback(ADCBuf_Handle handle, ADCBuf_Conversion *conversion, void *c
 
 /* Read values from adc */
 void *adcThreadFunc(void *arg0) {
+    Display_Handle display = *(Display_Handle *) arg0;
+
     Display_printf(display, 0, 0, "ADC: Thread started\n");
 
     ADCBuf_Handle adcBuf;
@@ -146,7 +143,7 @@ void *adcThreadFunc(void *arg0) {
     adcBuf = ADCBuf_open(Board_ADCBUF0, &adcBufParams);
 
     /* Configure the conversion struct */
-    adcConversion.arg = NULL;
+    adcConversion.arg = &display;
     adcConversion.adcChannel = CC1350_LAUNCHXL_ADCBUF0CHANNELVSS;
     adcConversion.sampleBuffer = sampleBufferOne;
     adcConversion.sampleBufferTwo = sampleBufferTwo;
@@ -167,7 +164,7 @@ void *adcThreadFunc(void *arg0) {
     }
 
     while(1) {
-        sleep(10);
+        sleep(1000);
     }
 }
 
@@ -176,7 +173,9 @@ void *adcThreadFunc(void *arg0) {
  *  Open a ADC handle and get an array of sampling results after
  *  calling several conversions.
  */
-void *rfThreadTask(void *arg0) {
+void *rfThreadFunc(void *arg0) {
+    Display_Handle display = *(Display_Handle *) arg0;
+
     RF_Params rfParams;
     RF_Params_init(&rfParams);
 
@@ -213,6 +212,7 @@ void *rfThreadTask(void *arg0) {
         packet[1] = (uint8_t)(seqNumber++);
 
         uint8_t i;
+        Display_printf(display, 0, 0, "RF: Create random packet\n");
         for (i = 2; i < PAYLOAD_LENGTH; i++) {
             packet[i] = rand();
         }
@@ -221,6 +221,7 @@ void *rfThreadTask(void *arg0) {
         Display_printf(display, 0, 0, "RF: Sending packet: %d\n", packet);
         RF_EventMask terminationReason = RF_runCmd(rfHandle, (RF_Op*)&RF_cmdPropTx, RF_PriorityNormal, NULL, 0);
 
+        Display_printf(display, 0, 0, "RF: Evaluate termination reason\n");
         switch(terminationReason) {
             case RF_EventLastCmdDone:
              // A stand-alone radio operation command or the last radio
@@ -229,14 +230,17 @@ void *rfThreadTask(void *arg0) {
             case RF_EventCmdCancelled:
              // Command cancelled before it was started; it can be caused
             // by RF_cancelCmd() or RF_flushCmd().
+                Display_printf(display, 0, 0, "RF: Transmission cancelled\n");
              break;
             case RF_EventCmdAborted:
              // Abrupt command termination caused by RF_cancelCmd() or
              // RF_flushCmd().
+                Display_printf(display, 0, 0, "RF: Transmission aborted\n");
              break;
             case RF_EventCmdStopped:
              // Graceful command termination caused by RF_cancelCmd() or
              // RF_flushCmd().
+                Display_printf(display, 0, 0, "RF: Transmission stopped\n");
              break;
             default:
              // Uncaught error event
@@ -245,6 +249,7 @@ void *rfThreadTask(void *arg0) {
         }
 
         uint32_t cmdStatus = ((volatile RF_Op*)&RF_cmdPropTx)->status;
+        Display_printf(display, 0, 0, "RF: Evaluate status\n");
         switch(cmdStatus) {
             case PROP_DONE_OK:
              // Packet transmitted successfully
@@ -252,22 +257,28 @@ void *rfThreadTask(void *arg0) {
             case PROP_DONE_STOPPED:
              // received CMD_STOP while transmitting packet and finished
              // transmitting packet
+                Display_printf(display, 0, 0, "RF: Command stopped\n");
              break;
             case PROP_DONE_ABORT:
              // Received CMD_ABORT while transmitting packet
+                Display_printf(display, 0, 0, "RF: Command aborted\n");
              break;
             case PROP_ERROR_PAR:
              // Observed illegal parameter
+                Display_printf(display, 0, 0, "RF: Command parameters invalid\n");
              break;
             case PROP_ERROR_NO_SETUP:
              // Command sent without setting up the radio in a supported
              // mode using CMD_PROP_RADIO_SETUP or CMD_RADIO_SETUP
+                Display_printf(display, 0, 0, "RF: Radio not set up\n");
              break;
             case PROP_ERROR_NO_FS:
              // Command sent without the synthesizer being programmed
+                Display_printf(display, 0, 0, "RF: Synthesizer not programmed\n");
              break;
             case PROP_ERROR_TXUNF:
              // TX underflow observed during operation
+                Display_printf(display, 0, 0, "RF: TX underflow\n");
              break;
             default:
              // Uncaught error event - these could come from the
@@ -277,77 +288,17 @@ void *rfThreadTask(void *arg0) {
         }
 
         #ifndef POWER_MEASUREMENT
-        PIN_setOutputValue(ledPinHandle, Board_PIN_LED1,!PIN_getOutputValue(Board_PIN_LED1));
+            PIN_setOutputValue(ledPinHandle, Board_PIN_LED1, !PIN_getOutputValue(Board_PIN_LED1));
         #endif
-        /* Power down the radio */
-        RF_yield(rfHandle);
+            /* Power down the radio */
+            RF_yield(rfHandle);
 
         #ifdef POWER_MEASUREMENT
-        /* Sleep for PACKET_INTERVAL s */
-        sleep(PACKET_INTERVAL);
+            /* Sleep for PACKET_INTERVAL s */
+            sleep(PACKET_INTERVAL);
         #else
-        /* Sleep for PACKET_INTERVAL us */
-        usleep(PACKET_INTERVAL);
+            /* Sleep for PACKET_INTERVAL us */
+            usleep(PACKET_INTERVAL);
         #endif
     }
-}
-
-/*
- *  ======== mainThread ========
- */
-void *mainThread(void *arg0)
-{
-    pthread_t           thread0, thread1;
-    pthread_attr_t      attrs;
-    struct sched_param  priParam;
-    int                 retc;
-    int                 detachState;
-
-    /* Call driver init functions */
-    Display_init();
-
-    /* Open the display for output */
-    display = Display_open(Display_Type_UART, NULL);
-    if (display == NULL) {
-        /* Failed to open display driver */
-        while (1);
-    }
-
-    /* Create application threads */
-    pthread_attr_init(&attrs);
-
-    detachState = PTHREAD_CREATE_DETACHED;
-    /* Set priority and stack size attributes */
-    retc = pthread_attr_setdetachstate(&attrs, detachState);
-    if (retc != 0) {
-        /* pthread_attr_setdetachstate() failed */
-        while (1);
-    }
-
-    retc |= pthread_attr_setstacksize(&attrs, THREADSTACKSIZE);
-    if (retc != 0) {
-        /* pthread_attr_setstacksize() failed */
-        while (1);
-    }
-
-    priParam.sched_priority = 1;
-    pthread_attr_setschedparam(&attrs, &priParam);
-
-    /* Create threadFxn0 thread */
-    retc = pthread_create(&thread0, &attrs, adcThreadFunc, NULL);
-    if (retc != 0) {
-        /* pthread_create() failed */
-        Display_printf(display, 0, 0, "Main: ADC thread creation failed\n");
-        while (1);
-    }
-
-    /* Create threadFxn1 thread */
-    retc = pthread_create(&thread1, &attrs, rfThreadTask, NULL);
-    if (retc != 0) {
-        Display_printf(display, 0, 0, "Main: RF thread creation failed\n");
-        /* pthread_create() failed */
-        while (1);
-    }
-
-    return (NULL);
 }

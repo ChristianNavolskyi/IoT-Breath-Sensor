@@ -45,42 +45,76 @@
 /* Example/Board Header files */
 #include <ti/drivers/Board.h>
 
-extern void *mainThread(void *arg0);
+#include <ti/display/Display.h>
+
+extern void *adcThreadFunc(void *arg0);
+extern void *rfThreadFunc(void *arg0);
 
 /* Stack size in bytes */
-#define THREADSTACKSIZE    1024
+#define THREADSTACKSIZE   512
 
 /*
  *  ======== main ========
  */
 int main(void)
 {
-    pthread_t           thread;
+    pthread_t           thread0, thread1;
     pthread_attr_t      attrs;
     struct sched_param  priParam;
     int                 retc;
+    int                 detachState;
+    Display_Handle      display;
 
     /* Call driver init functions */
     Board_init();
+    Display_init();
 
-    /* Initialize the attributes structure with default values */
+    /* Open the display for output */
+    display = Display_open(Display_Type_UART, NULL);
+    if (display == NULL) {
+       /* Failed to open display driver */
+       while (1);
+    }
+
+    /* Create application threads */
     pthread_attr_init(&attrs);
 
-    /* Set priority, detach state, and stack size attributes */
-    priParam.sched_priority = 1;
-    retc = pthread_attr_setschedparam(&attrs, &priParam);
-    retc |= pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
-    retc |= pthread_attr_setstacksize(&attrs, THREADSTACKSIZE);
+    detachState = PTHREAD_CREATE_DETACHED;
+    /* Set priority and stack size attributes */
+    retc = pthread_attr_setdetachstate(&attrs, detachState);
     if (retc != 0) {
-        /* failed to set attributes */
-        while (1) {}
+       /* pthread_attr_setdetachstate() failed */
+       while (1);
     }
 
-    retc = pthread_create(&thread, &attrs, mainThread, NULL);
+    retc |= pthread_attr_setstacksize(&attrs, THREADSTACKSIZE);
     if (retc != 0) {
-        /* pthread_create() failed */
-        while (1) {}
+       /* pthread_attr_setstacksize() failed */
+       while (1);
     }
+
+    priParam.sched_priority = 1;
+    pthread_attr_setschedparam(&attrs, &priParam);
+
+    /* Create threadFxn0 thread */
+    retc = pthread_create(&thread0, &attrs, adcThreadFunc, &display);
+    if (retc != 0) {
+       /* pthread_create() failed */
+       Display_printf(display, 0, 0, "Main: ADC thread creation failed\n");
+       while (1);
+    }
+
+    priParam.sched_priority = 2;
+    pthread_attr_setschedparam(&attrs, &priParam);
+
+    /* Create threadFxn1 thread */
+    retc = pthread_create(&thread1, &attrs, rfThreadFunc, &display);
+    if (retc != 0) {
+       Display_printf(display, 0, 0, "Main: RF thread creation failed\n");
+       /* pthread_create() failed */
+       while (1);
+    }
+
 
     BIOS_start();
 
