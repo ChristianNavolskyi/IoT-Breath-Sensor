@@ -29,10 +29,14 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 /*
  *  ======== CC1350_LAUNCHXL.cmd ========
- *  CC26x0F128 PG2 linker configuration file for Code Composer Studio
  */
+
+--stack_size=1024   /* C stack is also used for ISR stack */
+
+HEAPSIZE = 0x2000;  /* Size of heap buffer used by HeapMem */
 
 /* Override default entry point.                                             */
 --entry_point ResetISR
@@ -65,24 +69,28 @@ MEMORY
 
 SECTIONS
 {
-    .text           :   > FLASH
-    .const          :   > FLASH
-    .constdata      :   > FLASH
-    .rodata         :   > FLASH
+    .text           :   >> FLASH
+    .TI.ramfunc     : {} load=FLASH, run=SRAM, table(BINIT)
+    .const          :   >> FLASH
+    .constdata      :   >> FLASH
+    .rodata         :   >> FLASH
     .cinit          :   > FLASH
     .pinit          :   > FLASH
     .init_array     :   > FLASH
-    .emb_text       :   > FLASH
+    .emb_text       :   >> FLASH
     .ccfg           :   > FLASH (HIGH)
 
-#ifdef __TI_COMPILER_VERSION__
-#if __TI_COMPILER_VERSION__ >= 15009000
-    .TI.ramfunc     : {} load=FLASH, run=SRAM, table(BINIT)
-#endif
-#endif
     .data           :   > SRAM
     .bss            :   > SRAM
     .sysmem         :   > SRAM
-    .stack          :   > SRAM (HIGH)
     .nonretenvar    :   > SRAM
+
+    /* Heap buffer used by HeapMem */
+    .priheap   : {
+        __primary_heap_start__ = .;
+        . += HEAPSIZE;
+        __primary_heap_end__ = .;
+    } > SRAM align 8
+
+    .stack          :   > SRAM (HIGH)
 }

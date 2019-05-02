@@ -1,65 +1,108 @@
-Example Summary
----------------
-The Packet TX example illustrates how to do simple packet transmission using
-the TI-RTOS RF driver. This example is meant to be used with the Packet RX
-example or SmartRF Studio. For every packet transmitted, Board_LED1 is toggled.
-The frequency and other RF settings can be modified using SmartRF Studio.
+### SysConfig Notice
 
-Peripherals Exercised
----------------------
-* `Board_LED1` - Toggled when data is transmitted over the RF interface
+All examples will soon be supported by SysConfig, a tool that will help you graphically configure your software components. A preview is available today in the examples/syscfg_preview directory. Starting in 3Q 2019, with SDK version 3.30, only SysConfig-enabled versions of examples will be provided. For more information, click [here](http://www.ti.com/sysconfignotice).
+
+---
+# adcsinglechannel
+
+---
+
+## Example Summary
+
+Example that uses the ADC driver to make a number of samples
+and print them via UART.
+
+## Peripherals Exercised
+
+* `Board_ADC0`
+* `Board_ADC1`
+
+## Resources & Jumper Settings
+
+> If you're using an IDE (such as CCS or IAR), please refer to Board.html in
+your project directory for resources used and board-specific jumper settings.
+Otherwise, you can find Board.html in the directory
+&lt;SDK_INSTALL_DIR&gt;/source/ti/boards/&lt;BOARD&gt;.
 
 
-Resources & Jumper Settings
----------------------------
-Please refer to the development board's specific "Settings and Resources"
-section in the Getting Started Guide (http://www.ti.com/lit/SPRUHU7C).
-For convenience, a short summary is also shown below.
+## Example Usage
 
-    | Development Boards | Notes                                               |
-    | ================== | =================================================== |
-    | CC1310DK           | Board_LED1 is the "LED1" LED                        |
-    | ------------------ | --------------------------------------------------- |
-    | CC1310_LAUNCHXL    | Board_LED1 is the "Green" LED                       |
-    | ------------------ | --------------------------------------------------- |
+* Example output is generated through use of Display driver APIs. Refer to the
+Display driver documentation found in the SimpleLink MCU SDK User's Guide.
 
-Example Usage
--------------
-Run the example. On another board, run the Packet RX example.
-Board_LED1 is toggled when data is transmitted.
+* Connect the ADC channels to the sampling sources.
+    * For quick testing, connect `Board_ADC0` to `GND` and `Board_ADC1` to `3V3`.
 
-Application Design Details
---------------------------
-This examples consists of a single task and the exported SmartRF Studio radio
-settings.
+>__Important:__ Caution should be used when connecting the pins to analog inputs greater than 3VDC.
 
-The default frequency is 868.0 MHz. In order to change frequency, modify the
-smartrf_settings file. This can be done using the code export feature in
-Smart RF Studio, or directly in the file.
+* Open a serial session (e.g. [`PuTTY`](http://www.putty.org/ "PuTTY's
+Homepage"), etc.) to the appropriate COM port.
+    * The COM port can be determined via Device Manager in Windows or via
+`ls /dev/tty*` in Linux.
 
-The default frequency is 868.0 MHz, in order to change RF settings please
-modify the smartrf_settings.c file.
-This can be done either by exporting from Smart RF Studio or directly in the
-file.
+The connection will have the following settings:
+```
+    Baud-rate:     115200
+    Data bits:          8
+    Stop bits:          1
+    Parity:          None
+    Flow Control:    None
+```
 
-When the task is executed it:
+* Run the example.
 
-1. Configures the radio for Proprietary mode
-2. Gets access to the radio via the RF drivers RF_open
-3. Sets up the radio using CMD_PROP_RADIO_DIV_SETUP command
-4. Set the output power to 14 dBm (requires that CCFG_FORCE_VDDR_HH = 1 in ccfg.c)
-5. Sets the frequency using CMD_FS command
-6. Create packet (with increasing sequence number and random content)
-7. Set absolute TX time to utilize automatic power management
-8. Transmit packet using CMD_PROP_TX command with blocking RF driver call
-9. Toggle Board_LED1 to indicate packet transmitted
-10. Transmit packets forever by repeating step 6-9
+Example snippet of outputs:
+```
+        ADC1 raw result (4): 230
 
-Note for IAR users: When using the CC1310DK, the TI XDS110v3 USB Emulator must
-be selected. For the CC1310_LAUNCHXL, select TI XDS110 Emulator. In both cases,
-select the cJTAG interface.
+        ADC1 convert result (4): 2500000 uV
+                    .                 .     .
+                    .                 .     .
+                    .                 .     .
+        ADC1 raw result (9): 280
 
-## References
-* For GNU and IAR users, please read the following website for details
-  about enabling [semi-hosting](http://processors.wiki.ti.com/index.php/TI-RTOS_Examples_SemiHosting)
-  in order to view console output.
+        ADC1 convert result (9): 3000000 uV
+```
+
+* The example outputs one sample from `Board_ADC0` and ten samples from
+`Board_ADC1`.
+
+* The actual conversion result values may vary depending on the reference
+voltage settings. Please refer to the board specific datasheet for more details.
+
+## Application Design Details
+
+This application uses two threads:
+
+`threadFxn0` - performs the following actions:
+
+1. Opens an ADC driver object.
+
+2. Uses the ADC driver object to perform a single sample and outputs the result.
+
+3. Closes the ADC driver object.
+
+`threadFxn1` - performs the following actions:
+
+1. Opens an ADC driver object.
+
+2. Uses the ADC driver object to perform 10 samples and output the results.
+
+3. Closes the ADC driver object.
+
+TI-RTOS:
+
+* When building in Code Composer Studio, the kernel configuration project will
+be imported along with the example. The kernel configuration project is
+referenced by the example, so it will be built first. The "release" kernel
+configuration is the default project used. It has many debug features disabled.
+These feature include assert checking, logging and runtime stack checks. For a
+detailed difference between the "release" and "debug" kernel configurations and
+how to switch between them, please refer to the SimpleLink MCU SDK User's
+Guide. The "release" and "debug" kernel configuration projects can be found
+under &lt;SDK_INSTALL_DIR&gt;/kernel/tirtos/builds/&lt;BOARD&gt;/(release|debug)/(ccs|gcc).
+
+FreeRTOS:
+
+* Please view the `FreeRTOSConfig.h` header file for example configuration
+information.

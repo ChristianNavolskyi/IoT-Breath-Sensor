@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2016, Texas Instruments Incorporated
+ * Copyright (c) 2016-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -25,27 +25,62 @@
  * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
  * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
  * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "Board.h"
-#include "RFSender.h"
-#include "ADCConverter.h"
+/*
+ *  ======== main_tirtos.c ========
+ */
+#include <stdint.h>
 
+/* POSIX Header files */
+#include <pthread.h>
+
+/* RTOS header files */
 #include <ti/sysbios/BIOS.h>
 
-// Variables for thread communication
-uint8_t flagValue = 0; // 0 - No Value present, 1 - Value present
-uint32_t adcValue = 0;
+/* Example/Board Header files */
+#include <ti/drivers/Board.h>
 
+extern void *mainThread(void *arg0);
 
-int main(void) {
-    Board_initGeneral();
+/* Stack size in bytes */
+#define THREADSTACKSIZE    1024
 
-    startRFTask(&adcValue, &flagValue);
-    startADCTask(&adcValue, &flagValue);
+/*
+ *  ======== main ========
+ */
+int main(void)
+{
+    pthread_t           thread;
+    pthread_attr_t      attrs;
+    struct sched_param  priParam;
+    int                 retc;
+
+    /* Call driver init functions */
+    Board_init();
+
+    /* Initialize the attributes structure with default values */
+    pthread_attr_init(&attrs);
+
+    /* Set priority, detach state, and stack size attributes */
+    priParam.sched_priority = 1;
+    retc = pthread_attr_setschedparam(&attrs, &priParam);
+    retc |= pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
+    retc |= pthread_attr_setstacksize(&attrs, THREADSTACKSIZE);
+    if (retc != 0) {
+        /* failed to set attributes */
+        while (1) {}
+    }
+
+    retc = pthread_create(&thread, &attrs, mainThread, NULL);
+    if (retc != 0) {
+        /* pthread_create() failed */
+        while (1) {}
+    }
 
     BIOS_start();
 
