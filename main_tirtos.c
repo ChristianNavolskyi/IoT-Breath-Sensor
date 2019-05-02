@@ -44,18 +44,44 @@
 
 /* Example/Board Header files */
 #include <ti/drivers/Board.h>
+#include <ti/drivers/UART.h>
 
-extern void *senderThread(void *arg0);
+#include <Board.h>
+
+extern void *adcThreadFunc(void *arg0);
+extern void *rfThreadFunc(void *arg0);
 
 /* Stack size in bytes */
 #define THREADSTACKSIZE   1024
+
+
+UART_Handle initUART() {
+    UART_Handle uart;
+    UART_Params uartParams;
+
+    UART_init();
+
+    UART_Params_init(&uartParams);
+    uartParams.writeDataMode = UART_DATA_BINARY;
+    uartParams.writeMode = UART_MODE_BLOCKING;
+    uartParams.baudRate = 115200;
+
+    uart = UART_open(Board_UART0, &uartParams);
+
+    if (uart == NULL) {
+        /* UART_open() failed */
+        while (1);
+    }
+
+    return uart;
+}
 
 /*
  *  ======== main ========
  */
 int main(void)
 {
-    pthread_t           thread;
+    pthread_t           thread0, thread1;
     pthread_attr_t      attrs;
     struct sched_param  priParam;
     int                 retc;
@@ -63,6 +89,7 @@ int main(void)
 
     /* Call driver init functions */
     Board_init();
+    UART_Handle uart = initUART();
 
     /* Create application threads */
     pthread_attr_init(&attrs);
@@ -85,10 +112,17 @@ int main(void)
     pthread_attr_setschedparam(&attrs, &priParam);
 
     /* Create threadFxn0 thread */
-    retc = pthread_create(&thread, &attrs, senderThread, NULL);
+    retc = pthread_create(&thread0, &attrs, adcThreadFunc, &uart);
     if (retc != 0) {
        /* pthread_create() failed */
        while (1);
+    }
+
+    /* Create threadFxn1 thread */
+    retc = pthread_create(&thread1, &attrs, rfThreadFunc, &uart);
+    if (retc != 0) {
+        /* pthread_create() failed */
+        while (1);
     }
 
     BIOS_start();
