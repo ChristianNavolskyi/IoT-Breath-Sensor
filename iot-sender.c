@@ -57,7 +57,7 @@
 #include "smartrf_settings/smartrf_settings.h"
 
 
-static float samplingFrequency = 0.25;
+static unsigned samplingFrequency = 2;
 
 /* ADC properties */
 #define ADCBUFFERSIZE    (1)
@@ -296,7 +296,7 @@ void startSamplingLoop() {
         sendValue(samplingValue);
 
         printMessage("Waiting...\r\n");
-        usleep(10000000);
+        sleep(samplingFrequency);
     }
 }
 
