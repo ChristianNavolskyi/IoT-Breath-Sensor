@@ -133,6 +133,7 @@ void printMessage(char *fmt, ...) {
 void initADB() {
     ADC_Params adcParams;
 
+    ADC_init();
     ADC_Params_init(&adcParams);
 
     adcHandle = ADC_open(Board_ADC0, &adcParams);
