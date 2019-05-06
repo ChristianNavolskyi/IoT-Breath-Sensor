@@ -36,17 +36,15 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <unistd.h>
-
-/* POSIX Header files */
-#include <pthread.h>
 
 /* Driver Header files */
 #include <ti/drivers/ADC.h>
 #include <ti/drivers/rf/RF.h>
 #include <ti/drivers/PIN.h>
 #include <ti/drivers/pin/PINCC26XX.h>
-#include <ti/display/Display.h>
+#include <ti/drivers/UART.h>
+
+#include <xdc/runtime/System.h>
 
 #include DeviceFamily_constructPath(driverlib/rf_prop_mailbox.h)
 
@@ -97,18 +95,26 @@ PIN_Config pinTable[] =
     PIN_TERMINATE
 };
 
-// Display for UART
-Display_Handle display;
+// UART for debugging
+#define UART_BUFFER_LENGTH (50)
+UART_Handle uart;
+UART_Params uartParams;
 #define IS_DEBUGGING true
+char uartBuffer[UART_BUFFER_LENGTH];
 
-void initDisplay() {
-    Display_init();
+void initUART() {
+    UART_init();
 
-    /* Open the display for output */
-    display = Display_open(Display_Type_UART, NULL);
-    if (display == NULL) {
-      /* Failed to open display driver */
-      while (1);
+    UART_Params_init(&uartParams);
+    uartParams.writeDataMode = UART_DATA_BINARY;
+    uartParams.writeMode = UART_MODE_BLOCKING;
+    uartParams.baudRate = 115200;
+
+    uart = UART_open(Board_UART0, &uartParams);
+
+    if (uart == NULL) {
+        /* UART_open() failed */
+        exit(10);
     }
 }
 
@@ -117,7 +123,8 @@ void printMessage(char *fmt, ...) {
         va_list args;
         va_start(args, fmt);
 
-        printMessage(fmt, args);
+        uint32_t bufferLength = System_sprintf(uartBuffer, fmt, args);
+        UART_write(uart, uartBuffer, bufferLength + 1);
 
         va_end(args);
     }
@@ -128,11 +135,11 @@ void initADB() {
 
     ADC_Params_init(&adcParams);
 
-    adcHandle = ADC_open(CC1350_LAUNCHXL_ADCVDDS, &adcParams);
+    adcHandle = ADC_open(Board_ADC0, &adcParams);
 
     if (adcHandle == NULL){
         /* ADCBuf failed to open. */
-        printMessage("ADC: Could not open ADC port\n");
+        printMessage("ADC: Could not open ADC port\r\n");
         while(1);
     }
 }
@@ -144,11 +151,11 @@ void initRF() {
     /* Open LED pins */
     ledPinHandle = PIN_open(&ledPinState, pinTable);
     if (ledPinHandle == NULL) {
-        printMessage("RF: could not gain PIN access\n");
+        printMessage("RF: could not gain PIN access\r\n");
         while(1);
     }
 
-    printMessage("RF: start sending\n");
+    printMessage("RF: start sending\r\n");
 
     #ifdef POWER_MEASUREMENT
     #if defined(Board_CC1350_LAUNCHXL)
@@ -169,7 +176,7 @@ void initRF() {
 }
 
 void handleRFResult(RF_EventMask terminationReason) {
-    printMessage("RF: Evaluate termination reason\n");
+    printMessage("RF: Evaluate termination reason\r\n");
     switch (terminationReason) {
     case RF_EventLastCmdDone:
         // A stand-alone radio operation command or the last radio
@@ -178,26 +185,26 @@ void handleRFResult(RF_EventMask terminationReason) {
     case RF_EventCmdCancelled:
         // Command cancelled before it was started; it can be caused
         // by RF_cancelCmd() or RF_flushCmd().
-        printMessage("RF: Transmission cancelled\n");
+        printMessage("RF: Transmission cancelled\r\n");
         break;
     case RF_EventCmdAborted:
         // Abrupt command termination caused by RF_cancelCmd() or
         // RF_flushCmd().
-        printMessage("RF: Transmission aborted\n");
+        printMessage("RF: Transmission aborted\r\n");
         break;
     case RF_EventCmdStopped:
         // Graceful command termination caused by RF_cancelCmd() or
         // RF_flushCmd().
-        printMessage("RF: Transmission stopped\n");
+        printMessage("RF: Transmission stopped\r\n");
         break;
     default:
         // Uncaught error event
-        printMessage("RF: Uncaught error for termination\n");
+        printMessage("RF: Uncaught error for termination\r\n");
         while (1);
     }
 
     uint32_t cmdStatus = ((volatile RF_Op*) &RF_cmdPropTx)->status;
-    printMessage("RF: Evaluate status\n");
+    printMessage("RF: Evaluate status\r\n");
     switch (cmdStatus) {
     case PROP_DONE_OK:
         // Packet transmitted successfully
@@ -205,34 +212,33 @@ void handleRFResult(RF_EventMask terminationReason) {
     case PROP_DONE_STOPPED:
         // received CMD_STOP while transmitting packet and finished
         // transmitting packet
-        printMessage("RF: Command stopped\n");
+        printMessage("RF: Command stopped\r\n");
         break;
     case PROP_DONE_ABORT:
         // Received CMD_ABORT while transmitting packet
-        printMessage("RF: Command aborted\n");
+        printMessage("RF: Command aborted\r\n");
         break;
     case PROP_ERROR_PAR:
         // Observed illegal parameter
-        printMessage("RF: Command parameters invalid\n");
+        printMessage("RF: Command parameters invalid\r\n");
         break;
     case PROP_ERROR_NO_SETUP:
         // Command sent without setting up the radio in a supported
         // mode using CMD_PROP_RADIO_SETUP or CMD_RADIO_SETUP
-        printMessage("RF: Radio not set up\n");
+        printMessage("RF: Radio not set up\r\n");
         break;
     case PROP_ERROR_NO_FS:
         // Command sent without the synthesizer being programmed
-        printMessage("RF: Synthesizer not programmed\n");
+        printMessage("RF: Synthesizer not programmed\r\n");
         break;
     case PROP_ERROR_TXUNF:
         // TX underflow observed during operation
-        printMessage("RF: TX underflow\n");
+        printMessage("RF: TX underflow\r\n");
         break;
     default:
         // Uncaught error event - these could come from the
         // pool of states defined in rf_mailbox.h
-        Display_printf(display, 0, 0,
-                       "RF: Uncaught error for command status\n");
+        printMessage("RF: Uncaught error for command status\r\n");
         while (1);
     }
 }
@@ -244,12 +250,16 @@ uint32_t getADCValue() {
 
         uint32_t result =  ADC_convertToMicroVolts(adcHandle, adcSample);
 
-        printMessage("ADC: raw result: %d\n", adcSample);
-        printMessage("ADC: convert result: %d uV\n", result);
+        printMessage("ADC: raw result: %d\r\n", adcSample);
+        printMessage("ADC: convert result: %d uV\r\n", result);
+
+        return result;
     }
     else {
-        printMessage("ADC: convert failed\n");
+        printMessage("ADC: convert failed\r\n");
     }
+
+    return 0;
 }
 
 void sendValue(uint32_t value) {
@@ -257,13 +267,13 @@ void sendValue(uint32_t value) {
     packet[1] = (uint8_t)(seqNumber++);
 
     uint8_t i;
-    printMessage("RF: Create random packet\n");
+    printMessage("RF: Create random packet\r\n");
     for (i = 2; i < PAYLOAD_LENGTH; i++) {
         packet[i] = value >> ((i - 2) * 8);
     }
 
     /* Send packet */
-    printMessage("RF: Sending packet: %d\n", packet[2]);
+    printMessage("RF: Sending packet: %d\r\n", packet[2]);
     RF_EventMask terminationReason = RF_runCmd(rfHandle, (RF_Op*)&RF_cmdPropTx, RF_PriorityHigh, NULL, 0);
 
     handleRFResult(terminationReason);
@@ -276,18 +286,21 @@ void startSamplingLoop() {
         samplingValue = getADCValue();
         sendValue(samplingValue);
 
-        sleep(5);
+     //   sleep(5);
     }
 }
 
 /* Read values from ADC and send via RF (Sub1GHz) */
-void *senderThread(void *arg0) {
-    initDisplay();
+void senderThread() {
+    initUART();
+
+    printMessage("MAIN: UART initialized\r\n");
+
     initADB();
     initRF();
 
     /* Start converting. */
-    printMessage("ADC: Starting first conversion\n");
+    printMessage("ADC: Starting first conversion\r\n");
     startSamplingLoop();
 
     return;

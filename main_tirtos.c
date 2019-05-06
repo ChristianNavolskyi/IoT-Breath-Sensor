@@ -36,60 +36,39 @@
  */
 #include <stdint.h>
 
-/* POSIX Header files */
-#include <pthread.h>
-
 /* RTOS header files */
 #include <ti/sysbios/BIOS.h>
+#include <ti/sysbios/knl/Task.h>
 
 /* Example/Board Header files */
 #include <ti/drivers/Board.h>
 
 extern void *senderThread(void *arg0);
 
-/* Stack size in bytes */
-#define THREADSTACKSIZE   1024
+/***** Defines *****/
+#define TX_TASK_STACK_SIZE 1024
+#define TX_TASK_PRIORITY   2
+
+/***** Variable declarations *****/
+static Task_Params txTaskParams;
+Task_Struct txTask;    /* not static so you can see in ROV */
+static uint8_t txTaskStack[TX_TASK_STACK_SIZE];
+
 
 /*
  *  ======== main ========
  */
-int main(void)
-{
-    pthread_t           thread;
-    pthread_attr_t      attrs;
-    struct sched_param  priParam;
-    int                 retc;
-    int                 detachState;
-
+int main(void) {
     /* Call driver init functions */
     Board_init();
 
-    /* Create application threads */
-    pthread_attr_init(&attrs);
+    Task_Params_init(&txTaskParams);
+    txTaskParams.stackSize = TX_TASK_STACK_SIZE;
+    txTaskParams.priority = TX_TASK_PRIORITY;
+    txTaskParams.stack = &txTaskStack;
+    txTaskParams.arg0 = (UInt)1000000;
 
-    detachState = PTHREAD_CREATE_DETACHED;
-    /* Set priority and stack size attributes */
-    retc = pthread_attr_setdetachstate(&attrs, detachState);
-    if (retc != 0) {
-       /* pthread_attr_setdetachstate() failed */
-       while (1);
-    }
-
-    retc |= pthread_attr_setstacksize(&attrs, THREADSTACKSIZE);
-    if (retc != 0) {
-       /* pthread_attr_setstacksize() failed */
-       while (1);
-    }
-
-    priParam.sched_priority = 1;
-    pthread_attr_setschedparam(&attrs, &priParam);
-
-    /* Create threadFxn0 thread */
-    retc = pthread_create(&thread, &attrs, senderThread, NULL);
-    if (retc != 0) {
-       /* pthread_create() failed */
-       while (1);
-    }
+    Task_construct(&txTask, senderThread, &txTaskParams, NULL);
 
     BIOS_start();
 
