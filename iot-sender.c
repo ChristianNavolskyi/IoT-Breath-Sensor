@@ -45,36 +45,36 @@
 #include <ti/drivers/PIN.h>
 #include <ti/drivers/pin/PINCC26XX.h>
 #include <ti/drivers/UART.h>
+#include <ti/sysbios/knl/Mailbox.h>
+#include <ti/sysbios/BIOS.h>
 #include <xdc/runtime/System.h>
 
 #include DeviceFamily_constructPath(driverlib/rf_prop_mailbox.h)
 
 /* Example/Board Header files */
 #include "Board.h"
+#include <structs.h>
 #include "smartrf_settings/smartrf_settings.h"
 
 
 /* UART */
 #define IS_DEBUGGING true
-#define UART_BUFFER_SIZE (50)
+#define UART_BUFFER_SIZE    (50)
 char adcUartBuffer[UART_BUFFER_SIZE];
 char rfUartBuffer[UART_BUFFER_SIZE];
 
 /* ADC properties */
-#define ADCBUFFERSIZE    (1)
+#define ADCBUFFERSIZE       (1)
 uint16_t sampleBufferOne[ADCBUFFERSIZE];
 uint16_t sampleBufferTwo[ADCBUFFERSIZE];
 uint32_t microVoltBuffer[ADCBUFFERSIZE];
 
 /* RF properties */
-#define PAYLOAD_LENGTH      3
+#define PAYLOAD_LENGTH      30
+#define TIME_TO_SLEEP       5
 static RF_Object rfObject;
 static RF_Handle rfHandle;
 static uint8_t packet[PAYLOAD_LENGTH];
-static uint16_t seqNumber;
-
-/* Sleep */
-static uint8_t rfSleepTime = 5;
 
 /* Pin driver handle */
 static PIN_Handle ledPinHandle;
@@ -95,10 +95,8 @@ PIN_Config pinTable[] =
     PIN_TERMINATE
 };
 
-// ADC value and flag for thread communication
-// TODO message queue
-volatile static uint32_t adcValue = 0;
-volatile static uint8_t valueFlag = 0; // 0 - no value present, 1 - value present
+// Thread communication
+uint32_t counter = 0;
 
 
 void printMessageWithArg(UART_Handle uart, char uartBuffer[], char const *fmt, int num, ...) {
@@ -128,21 +126,35 @@ void printMessage(UART_Handle uart, char uartBuffer[], char const *fmt) {
  * sent to the PC via UART.
  */
 void adcBufCallback(ADCBuf_Handle handle, ADCBuf_Conversion *conversion, void *completedADCBuffer, uint32_t completedChannel) {
+    ThreadHandles callbackHandles = *(ThreadHandles *) conversion->arg;
+    UART_Handle callbackUart = *(callbackHandles.uart);
+    Mailbox_Handle callbackMailbox = *(callbackHandles.mailbox);
+
+    printMessage(adcUart, adcUartBuffer, "ADC: Callback\r\n");
+
     /* Adjust raw ADC values and convert them to microvolts */
     ADCBuf_adjustRawValues(handle, completedADCBuffer, ADCBUFFERSIZE, completedChannel);
     ADCBuf_convertAdjustedToMicroVolts(handle, completedChannel, completedADCBuffer, microVoltBuffer, ADCBUFFERSIZE);
 
-    printMessageWithArg(*(UART_Handle *) conversion->arg, adcUartBuffer, "ADC: Read value: %d\r\n", 1, microVoltBuffer[0]);
+    uint32_t value = microVoltBuffer[0];
+
+    printMessageWithArg(callbackUart, adcUartBuffer, "ADC: Read value: %d\r\n", 1, value);
+
+    Message msg;
+    msg.counter = counter++;
+    msg.value = value;
+
+    Mailbox_post(callbackMailbox, &msg, BIOS_NO_WAIT);
 }
 
-void initMessageQueue() {
 
-}
 
 /* Read values from adc */
 void *adcThreadFunc(void *arg0) {
-    UART_Handle uart = *(UART_Handle *) arg0;
-    printMessage(uart, adcUartBuffer, "ADC: Thread started\r\n");
+    ThreadHandles adcHandles = *(ThreadHandles *) arg0;
+
+    UART_Handle adcUart = *(adcHandles.uart);
+    printMessage(adcUart, adcUartBuffer, "ADC: Thread started\r\n");
 
     ADCBuf_Handle adcBuf;
     ADCBuf_Params adcBufParams;
@@ -160,7 +172,7 @@ void *adcThreadFunc(void *arg0) {
     adcBuf = ADCBuf_open(Board_ADCBUF0, &adcBufParams);
 
     /* Configure the conversion struct */
-    adcConversion.arg = &uart;
+    adcConversion.arg = &adcHandles;
     adcConversion.adcChannel = CC1350_LAUNCHXL_ADCBUF0CHANNEL0;
     adcConversion.sampleBuffer = sampleBufferOne;
     adcConversion.sampleBufferTwo = sampleBufferTwo;
@@ -168,15 +180,15 @@ void *adcThreadFunc(void *arg0) {
 
     if (adcBuf == NULL){
         /* ADCBuf failed to open. */
-        printMessage(uart, adcUartBuffer, "ADC: Could not open ADC port\r\n");
+        printMessage(adcUart, adcUartBuffer, "ADC: Could not open ADC port\r\n");
         while(1);
     }
 
     /* Start converting. */
-    printMessage(uart, adcUartBuffer, "ADC: Starting first conversion\r\n");
+    printMessage(adcUart, adcUartBuffer, "ADC: Starting first conversion\r\n");
     if (ADCBuf_convert(adcBuf, &adcConversion, 1) != ADCBuf_STATUS_SUCCESS) {
         /* Did not start conversion process correctly. */
-        printMessage(uart, adcUartBuffer, "ADC: Could not start conversion\r\n");
+        printMessage(adcUart, adcUartBuffer, "ADC: Could not start conversion\r\n");
         while(1);
     }
 
@@ -251,7 +263,22 @@ void handleTransmissionResult(UART_Handle uart, RF_EventMask terminationReason) 
          printMessage(uart, rfUartBuffer, "RF: Uncaught error for command status\r\n");
          while(1);
     }
+}
 
+void processMessage(Message message) {
+    uint32_t value = message.value;
+
+    packet[0] = value;
+    packet[1] = value >> 8;
+    packet[2] = value >> 16;
+    packet[3] = value >> 24;
+
+    printMessageWithArg(uart, rfUartBuffer, "RF: Sending packet: %d\r\n", 1, value);
+    RF_EventMask terminationReason = RF_runCmd(rfHandle, (RF_Op*)&RF_cmdPropTx, RF_PriorityNormal, NULL, 0);
+
+    handleTransmissionResult(uart, terminationReason);
+
+    PIN_setOutputValue(ledPinHandle, Board_PIN_LED1,!PIN_getOutputValue(Board_PIN_LED1));
 }
 
 /*
@@ -260,7 +287,12 @@ void handleTransmissionResult(UART_Handle uart, RF_EventMask terminationReason) 
  *  calling several conversions.
  */
 void *rfThreadFunc(void *arg0) {
-    UART_Handle uart = *(UART_Handle *) arg0;
+    ThreadHandles handles = *(ThreadHandles *) arg0;
+
+    Mailbox_Handle mailbox = *(handles.mailbox);
+    UART_Handle uart = *(handles.uart);
+    Event_Handle event = *(handles.event);
+
     printMessage(uart, rfUartBuffer, "RF: Thread started\r\n");
 
     RF_Params rfParams;
@@ -292,26 +324,18 @@ void *rfThreadFunc(void *arg0) {
     /* Set the frequency */
     RF_postCmd(rfHandle, (RF_Op*)&RF_cmdFs, RF_PriorityNormal, NULL, 0);
 
-    while(1)
-    {
-        /* Create packet with incrementing sequence number and random payload */
-        packet[0] = (uint8_t)(seqNumber >> 8);
-        packet[1] = (uint8_t)(seqNumber++);
+    Message msg;
 
-        uint8_t i;
-        printMessage(uart, rfUartBuffer, "RF: Create random packet\r\n");
-        for (i = 2; i < PAYLOAD_LENGTH; i++) {
-            packet[i] = rand();
+    while(1) {
+        printMessage(uart, rfUartBuffer, "Wait for Mailbox\r\n");
+        events = Event_pend(event, Event_Id_NONE, handles.eventId, BIOS_WAIT_FOREVER);
+
+        if (events & Event_Id_00) {
+            Mailbox_pend(mailbox, &msg, BIOS_NO_WAIT);
+            processMessage(msg)
+        } else {
+            printMessage(uart, rfUartBuffer, "No value in Mailbox, going to sleep\r\n");
+            sleep(TIME_TO_SLEEP);
         }
-
-        /* Send packet */
-        printMessageWithArg(uart, rfUartBuffer, "RF: Sending packet: %d\r\n", 1, packet[2]);
-        RF_EventMask terminationReason = RF_runCmd(rfHandle, (RF_Op*)&RF_cmdPropTx, RF_PriorityNormal, NULL, 0);
-
-        handleTransmissionResult(uart, terminationReason);
-
-        // TODO Pins
-        PIN_setOutputValue(ledPinHandle, Board_PIN_LED1,!PIN_getOutputValue(Board_PIN_LED1));
-        sleep(rfSleepTime);
     }
 }

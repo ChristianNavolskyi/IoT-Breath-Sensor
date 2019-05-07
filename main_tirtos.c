@@ -45,14 +45,18 @@
 /* Example/Board Header files */
 #include <ti/drivers/Board.h>
 #include <ti/drivers/UART.h>
+#include <ti/sysbios/knl/Event.h>
+#include <ti/sysbios/knl/Mailbox.h>
 
 #include <Board.h>
+#include <structs.h>
 
 extern void *adcThreadFunc(void *arg0);
 extern void *rfThreadFunc(void *arg0);
 
 /* Stack size in bytes */
 #define THREADSTACKSIZE   1024
+#define MAILBOX_SIZE 50
 
 
 UART_Handle initUART() {
@@ -76,11 +80,20 @@ UART_Handle initUART() {
     return uart;
 }
 
+Mailbox_Handle initMailbox(Event_Handle eventHandle, UInt eventId) {
+    Mailbox_Params mailboxParams;
+    Mailbox_Params_init(&mailboxParams);
+
+    mailboxParams.readerEvent = eventHandle;
+    mailboxParams.readerEventId = eventId;
+
+    return Mailbox_create(sizeof(Message), MAILBOX_SIZE, &mailboxParams, NULL);
+}
+
 /*
  *  ======== main ========
  */
-int main(void)
-{
+int main(void) {
     pthread_t           thread0, thread1;
     pthread_attr_t      attrs;
     struct sched_param  priParam;
@@ -90,6 +103,14 @@ int main(void)
     /* Call driver init functions */
     Board_init();
     UART_Handle uart = initUART();
+    Event_Handle eventHandle = Event_create(NULL, NULL);
+    Mailbox_Handle mailbox = initMailbox(eventHandle, Event_Id_00);
+
+    ThreadHandles handles;
+    handles.uart = &uart;
+    handles.mailbox = &mailbox;
+    handles.event = &eventHandle;
+    handles.eventId = Event_Id_00;
 
     /* Create application threads */
     pthread_attr_init(&attrs);
@@ -112,7 +133,7 @@ int main(void)
     pthread_attr_setschedparam(&attrs, &priParam);
 
     /* Create threadFxn0 thread */
-    retc = pthread_create(&thread0, &attrs, adcThreadFunc, &uart);
+    retc = pthread_create(&thread0, &attrs, adcThreadFunc, &handles);
     if (retc != 0) {
        /* pthread_create() failed */
        while (1);
@@ -122,7 +143,7 @@ int main(void)
     pthread_attr_setschedparam(&attrs, &priParam);
 
     /* Create threadFxn1 thread */
-    retc = pthread_create(&thread1, &attrs, rfThreadFunc, &uart);
+    retc = pthread_create(&thread1, &attrs, rfThreadFunc, &handles);
     if (retc != 0) {
         /* pthread_create() failed */
         while (1);
