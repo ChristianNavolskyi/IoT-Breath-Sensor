@@ -132,7 +132,12 @@ void adcBufCallback(ADCBuf_Handle handle, ADCBuf_Conversion *conversion, void *c
     ADCBuf_adjustRawValues(handle, completedADCBuffer, ADCBUFFERSIZE, completedChannel);
     ADCBuf_convertAdjustedToMicroVolts(handle, completedChannel, completedADCBuffer, microVoltBuffer, ADCBUFFERSIZE);
 
-    printMessageWithArg(*(UART_Handle *) conversion->arg, adcUartBuffer, "ADC: Read value: %d\r\n", 1, 5);
+    PIN_setOutputValue(ledPinHandle, Board_PIN_LED0,!PIN_getOutputValue(Board_PIN_LED0));
+    printMessageWithArg(*(UART_Handle *) conversion->arg, adcUartBuffer, "ADC: Read value: %d\r\n", 1, microVoltBuffer[0]);
+}
+
+void initMessageQueue() {
+
 }
 
 /* Read values from adc */
@@ -307,6 +312,7 @@ void *rfThreadFunc(void *arg0) {
         handleTransmissionResult(uart, terminationReason);
 
         // TODO Pins
+        PIN_setOutputValue(ledPinHandle, Board_PIN_LED1,!PIN_getOutputValue(Board_PIN_LED1));
         sleep(rfSleepTime);
     }
 }
