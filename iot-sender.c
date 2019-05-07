@@ -67,7 +67,7 @@ uint16_t sampleBufferTwo[ADCBUFFERSIZE];
 uint32_t microVoltBuffer[ADCBUFFERSIZE];
 
 /* RF properties */
-#define PAYLOAD_LENGTH      30
+#define PAYLOAD_LENGTH      3
 static RF_Object rfObject;
 static RF_Handle rfHandle;
 static uint8_t packet[PAYLOAD_LENGTH];
@@ -301,7 +301,7 @@ void *rfThreadFunc(void *arg0) {
         }
 
         /* Send packet */
-        printMessageWithArg(uart, rfUartBuffer, "RF: Sending packet: %d\r\n", 1, packet);
+        printMessageWithArg(uart, rfUartBuffer, "RF: Sending packet: %d\r\n", 1, packet[2]);
         RF_EventMask terminationReason = RF_runCmd(rfHandle, (RF_Op*)&RF_cmdPropTx, RF_PriorityNormal, NULL, 0);
 
         handleTransmissionResult(uart, terminationReason);
