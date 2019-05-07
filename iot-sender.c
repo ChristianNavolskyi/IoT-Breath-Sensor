@@ -33,6 +33,7 @@
 /*
  *  ======== adcsinglechannel.c ========
  */
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -73,7 +74,7 @@ static uint8_t packet[PAYLOAD_LENGTH];
 static uint16_t seqNumber;
 
 /* Sleep */
-#define RF_SLEEP_TIME 5
+static uint8_t rfSleepTime = 5;
 
 /* Pin driver handle */
 static PIN_Handle ledPinHandle;
@@ -100,15 +101,24 @@ volatile static uint32_t adcValue = 0;
 volatile static uint8_t valueFlag = 0; // 0 - no value present, 1 - value present
 
 
-void printMessage(UART_Handle uart, char uartBuffer[], char *fmt, ...) {
+void printMessageWithArg(UART_Handle uart, char uartBuffer[], char const *fmt, int num, ...) {
     if (IS_DEBUGGING) {
         va_list args;
-        va_start(args, fmt);
+        va_start(args, num);
 
-        uint32_t bufferSize = System_sprintf(uartBuffer, fmt, args);
+        uint32_t value = va_arg(args, uint32_t);
+
+        uint32_t bufferSize = System_sprintf(uartBuffer, fmt, value);
         UART_write(uart, uartBuffer, bufferSize + 1);
 
         va_end(args);
+    }
+}
+
+void printMessage(UART_Handle uart, char uartBuffer[], char const *fmt) {
+    if (IS_DEBUGGING) {
+        uint32_t bufferSize = System_sprintf(uartBuffer, fmt);
+        UART_write(uart, uartBuffer, bufferSize + 1);
     }
 }
 
@@ -122,7 +132,7 @@ void adcBufCallback(ADCBuf_Handle handle, ADCBuf_Conversion *conversion, void *c
     ADCBuf_adjustRawValues(handle, completedADCBuffer, ADCBUFFERSIZE, completedChannel);
     ADCBuf_convertAdjustedToMicroVolts(handle, completedChannel, completedADCBuffer, microVoltBuffer, ADCBUFFERSIZE);
 
-    printMessage(*(UART_Handle *) conversion->arg, adcUartBuffer, "ADC: Read value: %d\r\n", microVoltBuffer[0]);
+    printMessageWithArg(*(UART_Handle *) conversion->arg, adcUartBuffer, "ADC: Read value: %d\r\n", 1, 5);
 }
 
 /* Read values from adc */
@@ -167,7 +177,7 @@ void *adcThreadFunc(void *arg0) {
     }
 
     while(1) {
-        sleep(1000);
+        sleep(10000);
     }
 }
 
@@ -291,12 +301,12 @@ void *rfThreadFunc(void *arg0) {
         }
 
         /* Send packet */
-        printMessage(uart, rfUartBuffer, "RF: Sending packet: %d\r\n", packet);
+        printMessageWithArg(uart, rfUartBuffer, "RF: Sending packet: %d\r\n", 1, packet);
         RF_EventMask terminationReason = RF_runCmd(rfHandle, (RF_Op*)&RF_cmdPropTx, RF_PriorityNormal, NULL, 0);
 
         handleTransmissionResult(uart, terminationReason);
 
         // TODO Pins
-        sleep(RF_SLEEP_TIME);
+        sleep(rfSleepTime);
     }
 }

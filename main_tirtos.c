@@ -118,6 +118,9 @@ int main(void)
        while (1);
     }
 
+    priParam.sched_priority = 2;
+    pthread_attr_setschedparam(&attrs, &priParam);
+
     /* Create threadFxn1 thread */
     retc = pthread_create(&thread1, &attrs, rfThreadFunc, &uart);
     if (retc != 0) {
