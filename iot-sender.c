@@ -38,6 +38,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <xdc/std.h>
 
 /* Driver Header files */
 #include <ti/drivers/ADCBuf.h>
@@ -144,13 +145,17 @@ void adcBufCallback(ADCBuf_Handle handle, ADCBuf_Conversion *conversion, void *c
     msg.counter = counter++;
     msg.value = value;
 
-    Mailbox_post(mailbox, &msg, BIOS_NO_WAIT);
+    if (Mailbox_post(mailbox, &msg, BIOS_NO_WAIT)) {
+        printMessage(uart, adcUartBuffer, "ADC: Wrote into mailbox\r\n");
+    } else {
+        printMessage(uart, adcUartBuffer, "ADC: Failed writing into mailbox\r\n");
+    }
 }
 
 
 
 /* Read values from adc */
-void *adcThreadFunc(void *arg0) {
+Void *adcTaskFunc(UArg arg0, UArg arg1) {
     ThreadHandles adcHandles = *(ThreadHandles *) arg0;
 
     UART_Handle adcUart = *(adcHandles.uart);
@@ -286,12 +291,11 @@ void processMessage(UART_Handle uart, Message message) {
  *  Open a ADC handle and get an array of sampling results after
  *  calling several conversions.
  */
-void *rfThreadFunc(void *arg0) {
+Void *rfTaskFunc(UArg arg0, UArg arg1) {
     ThreadHandles handles = *(ThreadHandles *) arg0;
 
     Mailbox_Handle mailbox = *(handles.mailbox);
     UART_Handle uart = *(handles.uart);
-    Event_Handle event = *(handles.event);
 
     printMessage(uart, rfUartBuffer, "RF: Thread started\r\n");
 
@@ -325,18 +329,10 @@ void *rfThreadFunc(void *arg0) {
     RF_postCmd(rfHandle, (RF_Op*)&RF_cmdFs, RF_PriorityNormal, NULL, 0);
 
     Message msg;
-    UInt events;
 
     while(1) {
         printMessage(uart, rfUartBuffer, "Wait for Mailbox\r\n");
-        events = Event_pend(event, Event_Id_NONE, handles.eventId, BIOS_WAIT_FOREVER);
-
-        if (events & Event_Id_00) {
-            Mailbox_pend(mailbox, &msg, BIOS_NO_WAIT);
-            processMessage(uart, msg);
-        } else {
-            printMessage(uart, rfUartBuffer, "No value in Mailbox, going to sleep\r\n");
-            sleep(TIME_TO_SLEEP);
-        }
+        Mailbox_pend(mailbox, &msg, BIOS_WAIT_FOREVER);
+        processMessage(uart, msg);
     }
 }

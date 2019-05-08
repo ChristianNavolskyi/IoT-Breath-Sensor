@@ -35,28 +35,32 @@
  *  ======== main_tirtos.c ========
  */
 #include <stdint.h>
-
-/* POSIX Header files */
-#include <pthread.h>
-
-/* RTOS header files */
-#include <ti/sysbios/BIOS.h>
+#include <xdc/std.h>
 
 /* Example/Board Header files */
 #include <ti/drivers/Board.h>
 #include <ti/drivers/UART.h>
-#include <ti/sysbios/knl/Event.h>
+#include <ti/sysbios/BIOS.h>
+#include <ti/sysbios/knl/Task.h>
 #include <ti/sysbios/knl/Mailbox.h>
 
 #include <Board.h>
 #include <structs.h>
 
-extern void *adcThreadFunc(void *arg0);
-extern void *rfThreadFunc(void *arg0);
-
 /* Stack size in bytes */
-#define THREADSTACKSIZE   1024
-#define MAILBOX_SIZE 50
+#define MAILBOX_SIZE 15
+#define TASKSTACKSIZE   512
+
+// Mailbox
+MailboxMessageObject mailboxBuffer[MAILBOX_SIZE];
+Mailbox_Struct mailboxStruct;
+
+// Tasks
+extern Void *adcTaskFunc(UArg arg0, UArg arg1);
+extern Void *rfTaskFunc(UArg arg0, UArg arg1);
+
+Task_Struct task0Struct, task1Struct;
+Char task0Stack[TASKSTACKSIZE], task1Stack[TASKSTACKSIZE];
 
 
 UART_Handle initUART() {
@@ -80,74 +84,41 @@ UART_Handle initUART() {
     return uart;
 }
 
-Mailbox_Handle initMailbox(Event_Handle eventHandle, UInt eventId) {
+Mailbox_Handle initMailbox() {
     Mailbox_Params mailboxParams;
     Mailbox_Params_init(&mailboxParams);
 
-    mailboxParams.readerEvent = eventHandle;
-    mailboxParams.readerEventId = eventId;
+    mailboxParams.buf = (Ptr)mailboxBuffer;
+    mailboxParams.bufSize = sizeof(mailboxBuffer);
 
-    return Mailbox_create(sizeof(Message), MAILBOX_SIZE, &mailboxParams, NULL);
+    Mailbox_construct(&mailboxStruct, sizeof(Message), MAILBOX_SIZE, &mailboxParams, NULL);
+    return Mailbox_handle(&mailboxStruct);
 }
 
 /*
  *  ======== main ========
  */
 int main(void) {
-    pthread_t           thread0, thread1;
-    pthread_attr_t      attrs;
-    struct sched_param  priParam;
-    int                 retc;
-    int                 detachState;
+    Task_Params taskParams;
 
     /* Call driver init functions */
     Board_init();
     UART_Handle uart = initUART();
-    Event_Handle eventHandle = Event_create(NULL, NULL);
-    Mailbox_Handle mailbox = initMailbox(eventHandle, Event_Id_00);
+    Mailbox_Handle mailbox = initMailbox();
 
     ThreadHandles handles;
     handles.uart = &uart;
     handles.mailbox = &mailbox;
-    handles.event = &eventHandle;
-    handles.eventId = Event_Id_00;
 
-    /* Create application threads */
-    pthread_attr_init(&attrs);
+    Task_Params_init(&taskParams);
+    taskParams.stackSize = TASKSTACKSIZE;
+    taskParams.arg0 = &handles;
 
-    detachState = PTHREAD_CREATE_DETACHED;
-    /* Set priority and stack size attributes */
-    retc = pthread_attr_setdetachstate(&attrs, detachState);
-    if (retc != 0) {
-       /* pthread_attr_setdetachstate() failed */
-       while (1);
-    }
+    taskParams.stack = &task0Stack;
+    Task_construct(&task0Struct, (Task_FuncPtr)adcTaskFunc, &taskParams, NULL);
 
-    retc |= pthread_attr_setstacksize(&attrs, THREADSTACKSIZE);
-    if (retc != 0) {
-       /* pthread_attr_setstacksize() failed */
-       while (1);
-    }
-
-    priParam.sched_priority = 1;
-    pthread_attr_setschedparam(&attrs, &priParam);
-
-    /* Create threadFxn0 thread */
-    retc = pthread_create(&thread0, &attrs, adcThreadFunc, &handles);
-    if (retc != 0) {
-       /* pthread_create() failed */
-       while (1);
-    }
-
-    priParam.sched_priority = 2;
-    pthread_attr_setschedparam(&attrs, &priParam);
-
-    /* Create threadFxn1 thread */
-    retc = pthread_create(&thread1, &attrs, rfThreadFunc, &handles);
-    if (retc != 0) {
-        /* pthread_create() failed */
-        while (1);
-    }
+    taskParams.stack = &task1Stack;
+    Task_construct(&task1Struct, (Task_FuncPtr)rfTaskFunc, &taskParams, NULL);
 
     BIOS_start();
 
