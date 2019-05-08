@@ -126,11 +126,11 @@ void printMessage(UART_Handle uart, char uartBuffer[], char const *fmt) {
  * sent to the PC via UART.
  */
 void adcBufCallback(ADCBuf_Handle handle, ADCBuf_Conversion *conversion, void *completedADCBuffer, uint32_t completedChannel) {
-    ThreadHandles callbackHandles = *(ThreadHandles *) conversion->arg;
-    UART_Handle callbackUart = *(callbackHandles.uart);
-    Mailbox_Handle callbackMailbox = *(callbackHandles.mailbox);
+    ThreadHandles handles = *(ThreadHandles *) conversion->arg;
+    UART_Handle uart = *(handles.uart);
+    Mailbox_Handle mailbox = *(handles.mailbox);
 
-    printMessage(adcUart, adcUartBuffer, "ADC: Callback\r\n");
+    printMessage(uart, adcUartBuffer, "ADC: Callback\r\n");
 
     /* Adjust raw ADC values and convert them to microvolts */
     ADCBuf_adjustRawValues(handle, completedADCBuffer, ADCBUFFERSIZE, completedChannel);
@@ -138,13 +138,13 @@ void adcBufCallback(ADCBuf_Handle handle, ADCBuf_Conversion *conversion, void *c
 
     uint32_t value = microVoltBuffer[0];
 
-    printMessageWithArg(callbackUart, adcUartBuffer, "ADC: Read value: %d\r\n", 1, value);
+    printMessageWithArg(uart, adcUartBuffer, "ADC: Read value: %d\r\n", 1, value);
 
     Message msg;
     msg.counter = counter++;
     msg.value = value;
 
-    Mailbox_post(callbackMailbox, &msg, BIOS_NO_WAIT);
+    Mailbox_post(mailbox, &msg, BIOS_NO_WAIT);
 }
 
 
@@ -265,7 +265,7 @@ void handleTransmissionResult(UART_Handle uart, RF_EventMask terminationReason) 
     }
 }
 
-void processMessage(Message message) {
+void processMessage(UART_Handle uart, Message message) {
     uint32_t value = message.value;
 
     packet[0] = value;
@@ -325,6 +325,7 @@ void *rfThreadFunc(void *arg0) {
     RF_postCmd(rfHandle, (RF_Op*)&RF_cmdFs, RF_PriorityNormal, NULL, 0);
 
     Message msg;
+    UInt events;
 
     while(1) {
         printMessage(uart, rfUartBuffer, "Wait for Mailbox\r\n");
@@ -332,7 +333,7 @@ void *rfThreadFunc(void *arg0) {
 
         if (events & Event_Id_00) {
             Mailbox_pend(mailbox, &msg, BIOS_NO_WAIT);
-            processMessage(msg)
+            processMessage(uart, msg);
         } else {
             printMessage(uart, rfUartBuffer, "No value in Mailbox, going to sleep\r\n");
             sleep(TIME_TO_SLEEP);
