@@ -118,15 +118,23 @@ void initUART() {
     }
 }
 
-void printMessage(char *fmt, ...) {
+void printMessageWithArg(char *fmt, int num, ...) {
     if (IS_DEBUGGING) {
         va_list args;
-        va_start(args, fmt);
+        va_start(args, num);
 
-        uint32_t bufferLength = System_sprintf(uartBuffer, fmt, args);
+        uint32_t value = va_arg(args, uint32_t);
+        uint32_t bufferLength = System_sprintf(uartBuffer, fmt, value);
         UART_write(uart, uartBuffer, bufferLength + 1);
 
         va_end(args);
+    }
+}
+
+void printMessage(char *fmt, ...) {
+    if (IS_DEBUGGING) {
+        uint32_t bufferLength = System_sprintf(uartBuffer, fmt);
+        UART_write(uart, uartBuffer, bufferLength + 1);
     }
 }
 
@@ -251,8 +259,8 @@ uint32_t getADCValue() {
 
         uint32_t result =  ADC_convertToMicroVolts(adcHandle, adcSample);
 
-        printMessage("ADC: raw result: %d\r\n", adcSample);
-        printMessage("ADC: convert result: %d uV\r\n", result);
+        printMessageWithArg("ADC: raw result: %d\r\n", 1, adcSample);
+        printMessageWithArg("ADC: convert result: %d uV\r\n", 1, result);
 
         return result;
     }
@@ -264,20 +272,18 @@ uint32_t getADCValue() {
 }
 
 void sendValue(uint32_t value) {
-    packet[0] = (uint8_t)(seqNumber >> 8);
-    packet[1] = (uint8_t)(seqNumber++);
-
-    uint8_t i;
-    printMessage("RF: Create random packet\r\n");
-    for (i = 2; i < PAYLOAD_LENGTH; i++) {
-        packet[i] = value >> ((i - 2) * 8);
-    }
+    packet[0] = value;
+    packet[1] = value >> 8;
+    packet[2] = value >> 16;
+    packet[3] = value >> 24;
 
     /* Send packet */
-    printMessage("RF: Sending packet: %d\r\n", packet[2]);
+    printMessageWithArg("RF: Sending packet: %d\r\n", 1, value);
     RF_EventMask terminationReason = RF_runCmd(rfHandle, (RF_Op*)&RF_cmdPropTx, RF_PriorityHigh, NULL, 0);
 
     handleRFResult(terminationReason);
+
+    PIN_setOutputValue(ledPinHandle, Board_PIN_LED1, !PIN_getOutputValue(Board_PIN_LED1));
 }
 
 void startSamplingLoop() {
