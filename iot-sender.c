@@ -67,14 +67,10 @@ uint16_t sampleBufferTwo[ADCBUFFERSIZE];
 uint32_t microVoltBuffer[ADCBUFFERSIZE];
 
 /* RF properties */
-#define PAYLOAD_LENGTH      3
+#define PAYLOAD_LENGTH      30
 static RF_Object rfObject;
 static RF_Handle rfHandle;
 static uint8_t packet[PAYLOAD_LENGTH];
-static uint16_t seqNumber;
-
-/* Sleep */
-static uint8_t rfSleepTime = 5;
 
 /* Pin driver handle */
 static PIN_Handle ledPinHandle;
@@ -96,7 +92,6 @@ PIN_Config pinTable[] =
 };
 
 // ADC value and flag for thread communication
-// TODO message queue
 volatile static uint32_t adcValue = 0;
 volatile static uint8_t valueFlag = 0; // 0 - no value present, 1 - value present
 
@@ -128,16 +123,19 @@ void printMessage(UART_Handle uart, char uartBuffer[], char const *fmt) {
  * sent to the PC via UART.
  */
 void adcBufCallback(ADCBuf_Handle handle, ADCBuf_Conversion *conversion, void *completedADCBuffer, uint32_t completedChannel) {
-    /* Adjust raw ADC values and convert them to microvolts */
-    ADCBuf_adjustRawValues(handle, completedADCBuffer, ADCBUFFERSIZE, completedChannel);
-    ADCBuf_convertAdjustedToMicroVolts(handle, completedChannel, completedADCBuffer, microVoltBuffer, ADCBUFFERSIZE);
+    UART_Handle uart = *(UART_Handle *) conversion->arg;
 
-    PIN_setOutputValue(ledPinHandle, Board_PIN_LED0,!PIN_getOutputValue(Board_PIN_LED0));
-    printMessageWithArg(*(UART_Handle *) conversion->arg, adcUartBuffer, "ADC: Read value: %d\r\n", 1, microVoltBuffer[0]);
-}
+    if (valueFlag == 0) {
+        /* Adjust raw ADC values and convert them to microvolts */
+        ADCBuf_adjustRawValues(handle, completedADCBuffer, ADCBUFFERSIZE, completedChannel);
+        ADCBuf_convertAdjustedToMicroVolts(handle, completedChannel, completedADCBuffer, microVoltBuffer, ADCBUFFERSIZE);
 
-void initMessageQueue() {
-
+        adcValue = microVoltBuffer[0];
+        printMessageWithArg(uart, adcUartBuffer, "ADC: Read value: %d\r\n", 1, adcValue);
+        valueFlag = 1;
+    } else {
+        printMessage(uart, adcUartBuffer, "ADC: Values has not yet been read\r\n");
+    }
 }
 
 /* Read values from adc */
@@ -252,7 +250,6 @@ void handleTransmissionResult(UART_Handle uart, RF_EventMask terminationReason) 
          printMessage(uart, rfUartBuffer, "RF: Uncaught error for command status\r\n");
          while(1);
     }
-
 }
 
 /*
@@ -293,26 +290,24 @@ void *rfThreadFunc(void *arg0) {
     /* Set the frequency */
     RF_postCmd(rfHandle, (RF_Op*)&RF_cmdFs, RF_PriorityNormal, NULL, 0);
 
-    while(1)
-    {
-        /* Create packet with incrementing sequence number and random payload */
-        packet[0] = (uint8_t)(seqNumber >> 8);
-        packet[1] = (uint8_t)(seqNumber++);
+    while(1) {
+        if (valueFlag == 1) {
+            packet[0] = adcValue;
+            packet[1] = adcValue >> 8;
+            packet[2] = adcValue >> 16;
+            packet[3] = adcValue >> 24;
 
-        uint8_t i;
-        printMessage(uart, rfUartBuffer, "RF: Create random packet\r\n");
-        for (i = 2; i < PAYLOAD_LENGTH; i++) {
-            packet[i] = rand();
+            /* Send packet */
+            printMessageWithArg(uart, rfUartBuffer, "RF: Sending packet: %d\r\n", 1, adcValue);
+            RF_EventMask terminationReason = RF_runCmd(rfHandle, (RF_Op*)&RF_cmdPropTx, RF_PriorityNormal, NULL, 0);
+
+            handleTransmissionResult(uart, terminationReason);
+
+            PIN_setOutputValue(ledPinHandle, Board_PIN_LED1,!PIN_getOutputValue(Board_PIN_LED1));
+            valueFlag = 0;
+        } else {
+            usleep(500000);
+            printMessage(uart, rfUartBuffer, "RF: Waiting for ADC value\r\n");
         }
-
-        /* Send packet */
-        printMessageWithArg(uart, rfUartBuffer, "RF: Sending packet: %d\r\n", 1, packet[2]);
-        RF_EventMask terminationReason = RF_runCmd(rfHandle, (RF_Op*)&RF_cmdPropTx, RF_PriorityNormal, NULL, 0);
-
-        handleTransmissionResult(uart, terminationReason);
-
-        // TODO Pins
-        PIN_setOutputValue(ledPinHandle, Board_PIN_LED1,!PIN_getOutputValue(Board_PIN_LED1));
-        sleep(rfSleepTime);
     }
 }
