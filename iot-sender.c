@@ -36,6 +36,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 /* Driver Header files */
 #include <ti/drivers/ADC.h>
@@ -78,7 +79,6 @@ static PIN_Handle ledPinHandle;
 static PIN_State ledPinState;
 
 static uint8_t packet[PAYLOAD_LENGTH];
-static uint16_t seqNumber;
 
 /*
  * Application LED pin configuration table:
@@ -259,7 +259,7 @@ uint32_t getADCValue() {
 
         uint32_t result =  ADC_convertToMicroVolts(adcHandle, adcSample);
 
-        printMessageWithArg("ADC: raw result: %d\r\n", 1, adcSample);
+//        printMessageWithArg("ADC: raw result: %d\r\n", 1, adcSample);
         printMessageWithArg("ADC: convert result: %d uV\r\n", 1, result);
 
         return result;
@@ -293,7 +293,7 @@ void startSamplingLoop() {
         samplingValue = getADCValue();
         sendValue(samplingValue);
 
-     //   sleep(5);
+        sleep(1);
     }
 }
 
