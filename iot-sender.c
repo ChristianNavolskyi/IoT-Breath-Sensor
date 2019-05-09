@@ -274,10 +274,11 @@ uint32_t getADCValue() {
 }
 
 void sendValue(uint32_t value) {
-    packet[0] = value;
-    packet[1] = value >> 8;
-    packet[2] = value >> 16;
-    packet[3] = value >> 24;
+    packet[0] = 'i';
+    packet[1] = value;
+    packet[2] = value >> 8;
+    packet[3] = value >> 16;
+    packet[4] = value >> 24;
 
     /* Send packet */
     printMessageWithArg("RF: Sending packet: %d\r\n", 1, value);
