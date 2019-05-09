@@ -184,8 +184,9 @@ void initRF() {
     RF_postCmd(rfHandle, (RF_Op*)&RF_cmdFs, RF_PriorityNormal, NULL, 0);
 }
 
-void handleRFResult(RF_EventMask terminationReason) {
+void handleTerminationReason(RF_EventMask terminationReason) {
     printMessage("RF: Evaluate termination reason\r\n");
+
     switch (terminationReason) {
     case RF_EventLastCmdDone:
         // A stand-alone radio operation command or the last radio
@@ -211,44 +212,46 @@ void handleRFResult(RF_EventMask terminationReason) {
         printMessage("RF: Uncaught error for termination\r\n");
         while (1);
     }
+}
 
-    uint32_t cmdStatus = ((volatile RF_Op*) &RF_cmdPropTx)->status;
+void handleCmdStatus(uint32_t status) {
     printMessage("RF: Evaluate status\r\n");
-    switch (cmdStatus) {
+
+    switch (status) {
     case PROP_DONE_OK:
-        // Packet transmitted successfully
-        break;
+       // Packet transmitted successfully
+       break;
     case PROP_DONE_STOPPED:
-        // received CMD_STOP while transmitting packet and finished
-        // transmitting packet
-        printMessage("RF: Command stopped\r\n");
-        break;
+       // received CMD_STOP while transmitting packet and finished
+       // transmitting packet
+       printMessage("RF: Command stopped\r\n");
+       break;
     case PROP_DONE_ABORT:
-        // Received CMD_ABORT while transmitting packet
-        printMessage("RF: Command aborted\r\n");
-        break;
+       // Received CMD_ABORT while transmitting packet
+       printMessage("RF: Command aborted\r\n");
+       break;
     case PROP_ERROR_PAR:
-        // Observed illegal parameter
-        printMessage("RF: Command parameters invalid\r\n");
-        break;
+       // Observed illegal parameter
+       printMessage("RF: Command parameters invalid\r\n");
+       break;
     case PROP_ERROR_NO_SETUP:
-        // Command sent without setting up the radio in a supported
-        // mode using CMD_PROP_RADIO_SETUP or CMD_RADIO_SETUP
-        printMessage("RF: Radio not set up\r\n");
-        break;
+       // Command sent without setting up the radio in a supported
+       // mode using CMD_PROP_RADIO_SETUP or CMD_RADIO_SETUP
+       printMessage("RF: Radio not set up\r\n");
+       break;
     case PROP_ERROR_NO_FS:
-        // Command sent without the synthesizer being programmed
-        printMessage("RF: Synthesizer not programmed\r\n");
-        break;
+       // Command sent without the synthesizer being programmed
+       printMessage("RF: Synthesizer not programmed\r\n");
+       break;
     case PROP_ERROR_TXUNF:
-        // TX underflow observed during operation
-        printMessage("RF: TX underflow\r\n");
-        break;
+       // TX underflow observed during operation
+       printMessage("RF: TX underflow\r\n");
+       break;
     default:
-        // Uncaught error event - these could come from the
-        // pool of states defined in rf_mailbox.h
-        printMessage("RF: Uncaught error for command status\r\n");
-        while (1);
+       // Uncaught error event - these could come from the
+       // pool of states defined in rf_mailbox.h
+       printMessage("RF: Uncaught error for command status\r\n");
+       while (1);
     }
 }
 
@@ -259,7 +262,6 @@ uint32_t getADCValue() {
 
         uint32_t result =  ADC_convertToMicroVolts(adcHandle, adcSample);
 
-//        printMessageWithArg("ADC: raw result: %d\r\n", 1, adcSample);
         printMessageWithArg("ADC: convert result: %d uV\r\n", 1, result);
 
         return result;
@@ -279,9 +281,12 @@ void sendValue(uint32_t value) {
 
     /* Send packet */
     printMessageWithArg("RF: Sending packet: %d\r\n", 1, value);
-    RF_EventMask terminationReason = RF_runCmd(rfHandle, (RF_Op*)&RF_cmdPropTx, RF_PriorityHigh, NULL, 0);
 
-    handleRFResult(terminationReason);
+    RF_EventMask terminationReason = RF_runCmd(rfHandle, (RF_Op*)&RF_cmdPropTx, RF_PriorityHigh, NULL, 0);
+    handleTerminationReason(terminationReason);
+
+    uint32_t cmdStatus = ((volatile RF_Op*) &RF_cmdPropTx)->status;
+    handleCmdStatus(cmdStatus);
 
     PIN_setOutputValue(ledPinHandle, Board_PIN_LED1, !PIN_getOutputValue(Board_PIN_LED1));
 }
